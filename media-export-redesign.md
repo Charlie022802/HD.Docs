@@ -293,7 +293,19 @@ $$ LANGUAGE sql;
 | `dicomStoragePath` | `DICOM/{D8}.dcm` | 輸出內的相對路徑樣板 |
 | `contents` | `["dicom"]` | 包裡要放什麼：`dicom`／`jpeg`，**可同時給兩個** |
 
-### `contents`：DICOM／JPEG／兩者都要（2026-08-17，Viewer 端需求）
+`priority` 不在上表 —— 它是**佇列屬性**不是打包選項，有自己的欄位 `PACKAGE_JOB.PRIORITY`
+（`integer`，預設 0）與索引，不進 `OPTIONS` jsonb（否則 claim 排序得先解 jsonb）。
+範圍 −9～9 由 API 擋（proc 不擋）：欄位是 `integer`，不設上限的話一個 `2147483647`
+就能永久霸佔佇列頭，而那種值本身沒有意義——排序只看相對大小。
+
+### `priority`：診間急件插隊（2026-08-17 開放）
+
+`claim_package_job_payload` 從一開始就是 `ORDER BY "PRIORITY" DESC, "JOB_ID"`（高的先領、
+同值 FIFO），`create_package_job` 也一直收 `priority`，**只差 API 沒開這個欄位**——
+呼叫端送了會被當未知屬性忽略，所有 job 都是 0。整條線上就缺這一格，所以補上。
+
+順帶補的是 `get_package_job` 的回傳：它原本沒有 `priority`，呼叫端送了值卻無法確認
+有沒有被採用。開一個寫得進去、讀不回來的旋鈕沒有意義，所以兩邊一起。
 
 legacy worker 用一個 `onlyJpeg` 布林值表達，那只夠表達「純 DICOM」與「純 JPEG」——
 **表達不出「兩者都要」**，而那正是 Viewer 要的第三種。所以改成可列舉的集合：
