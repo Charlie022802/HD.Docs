@@ -420,7 +420,44 @@ legacy worker 用一個 `onlyJpeg` 布林值表達，那只夠表達「純 DICOM
 定義在一處）；不燒字時完全不碰 `System.Drawing`（直接 ImageSharp `SaveAsJpeg`，
 少一次 BMP 中轉，也避開 Linux 的 libgdiplus 依賴）。
 
-**尚未實機跑過完整打包** —— 要部署到 .191 才能驗檔案產出。
+### 實機驗證（2026-08-17，.191 `pacs 2.0.6`）
+
+三種組合各建一筆真實 job，全部 `ready`：
+
+| contents | ITEM 快照 |
+|---|---|
+| `["dicom"]` | 6 筆 `DICOM/00000000.dcm`… |
+| `["jpeg"]` | 6 筆 `JPG/{SOP UID}.jpg` |
+| `["dicom","jpeg"]` | 6 筆（記 DICOM 那一份） |
+
+`claimedBy` 有值，證明 claim 機制運作。
+
+> #### 部署後才現形的兩個問題（都已修）
+>
+> **① JPEG 每張都 NullReferenceException**（`PackageService.cs:213` 的 `AsSharpImage`）
+>
+> `new DicomImage(fileName)` 是**直接 new、不經 DI**，靠 fo-dicom 的**靜態
+> ServiceProvider** 找 ImageManager。`ConfigureServices` 裡的
+> `AddImageManager<ImageSharpImageManager>()` 只設定了 host 的 DI，這條路沒接上，
+> fallback 到預設的 `RawImageManager` —— 它產生的 `IImage` 不是 `ImageSharpImage`，
+> `AsSharpImage()` 回 null 就 NRE。
+>
+> 對照專案裡其他用法就看得出來：Viewer 與 TestClient 都有
+> `new DicomSetupBuilder().RegisterServices(…).Build()`，DicomWeb 走 ASP.NET Core
+> 那條路也沒事，**只有這支 Generic Host 沒接**。
+>
+> 這是**既有缺陷**，不是階段 3 改出來的 —— 但 JPEG 路徑從未被啟用（`onlyJpeg` 沒有
+> 任何設定來源），而 DICOM 那條路不 render，所以一直沒人發現。
+>
+> **② JPEG 全部失敗卻標成 `ready`**
+>
+> 逐檔的 `try/catch` 只記 log 不中斷，所以六張全炸也會走到最後標 `ready`。
+> 實測就是這樣：那筆 DICOM+JPEG 的 job，DICOM 完全正常、JPEG 全滅，卻顯示成功。
+> 現在累計成功／失敗數：全失敗丟例外標 `failed`；部分失敗仍交包，但把
+> 「JPEG 有 N 張轉檔失敗」寫進 `ERROR_TEXT` —— 否則「248 張只出了 200 張」沒有人會發現。
+>
+> **教訓**：API 層與 DB 層都能在本機驗，但 worker 的影像轉檔依賴 ImageManager 的
+> **執行期初始化** —— 那種東西只有真的部署跑起來才會現形。
 
 ---
 
