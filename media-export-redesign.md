@@ -220,15 +220,55 @@ $$ LANGUAGE sql;
 
 `POST /export/packages`　認證 `X-API-Key`（scope `export.write`）
 
-**選擇影像** — 三個層級可混用、取聯集：
+**選擇影像 — 巢狀 `studies[]`，一條規則遞歸適用：省略下一層＝該層全要。**
 
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `studyInstanceUid` | string[] | 整個 study |
-| `seriesInstanceUid` | string[] | 整個 series |
-| `sopInstanceUid` | string[] | 單張影像 |
+```jsonc
+{
+  "studies": [
+    {
+      "studyInstanceUid": "1.2.826.0.1.3680043.10.688.…",
+      "series": [
+        { "seriesInstanceUid": "1.2.840.113619.2.4" },        // 省略 instances → 整個 series
+        {
+          "seriesInstanceUid": "1.2.840.113619.2.5",
+          "instances": [                                       // 只要這幾張
+            { "sopInstanceUid": "…110" },
+            { "sopInstanceUid": "…1104" }
+          ]
+        }
+      ]
+    },
+    { "studyInstanceUid": "1.2.826.0.1.3680043.10.688.…2" }   // 省略 series → 整個 study
+  ]
+}
+```
 
-（既有的 `studyRef` 與 `patientId`+`accessionNumber` 保留，桌面端在用。）
+（`studyRef` 與 `patientId`+`accessionNumber` 保留給既有呼叫端，語意是整個 study。）
+
+> #### 為什麼不是三個平行陣列（2026-08-17 改掉）
+> 原本 v2.0.28 的 API 平行收 `studyInstanceUid` / `seriesInstanceUid` / `sopInstanceUid`，
+> 論證是「DICOM UID 全域唯一，所以選出的影像集合不會有歧義」。那個論證本身沒錯，
+> **但它沒有處理呼叫端會不會誤用**，而那是更重要的問題：
+>
+> ```
+> 平行：series=[B] + sop=[x,y,z]   →  B 全部 ∪ {x,y,z}     （聯集）
+> 巢狀：series B, instances=[x,y,z] →  B 裡「只要」這三張   （子集）
+> ```
+>
+> 呼叫端的直覺幾乎一定是後者 ——「我給了 series 又給了 sop，當然是在這個 series 裡選這幾張」。
+> 舊設計要表達「只要 3 張」得**只送 sop、不送 series**，非常反直覺。
+> 而 Viewer 的 UI 本來就是一棵樹（study → series → 影像，勾選狀態天然巢狀），
+> 硬要它攤平成三個陣列，是把它的資料結構弄壞來配合 API。
+>
+> **`instances` 用物件陣列而不是字串陣列**，是為了三層都是同一個 `{ uid, 子容器? }` 形狀，
+> 而且與 `resolve_package_job_files` 回給 worker 的**輸出對稱**（那邊本來就是
+> `instances: [{ sopInstanceUid, filePath, fileLength, … }]`）——呼叫端可以拿查詢結果
+> 直接改造成下一次的請求。字串陣列雖然短，但將來要指定 frame、光碟檔名、
+> 標註 key image 就塞不進去了。
+>
+> `PACKAGE_JOB_SELECTION` 也跟著改成三欄式（`STUDY_UID`／`SERIES_UID`／`SOP_UID`，
+> `NULL`＝該層全要，見 `v2.0.30`），所以**事後直接看表就能還原使用者當初勾了什麼** ——
+> 舊的扁平 `(LEVEL, UID)` 連「這個 series 屬於哪個 study」都沒記。
 
 **選項** — 省略即套用預設：
 
