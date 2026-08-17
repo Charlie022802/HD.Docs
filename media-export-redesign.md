@@ -243,7 +243,20 @@ $$ LANGUAGE sql;
 }
 ```
 
-（`studyRef` 與 `patientId`+`accessionNumber` 保留給既有呼叫端，語意是整個 study。）
+（另可用 `patientId`+`accessionNumber` 成對指定，語意是整個 study。）
+
+> #### 為什麼不收 `studyRef`（2026-08-17 移除）
+> v2.0.28／2.0.30 原本也收 `studyRef`（`RC_STUDY.STUDY_REF` 整數），名義上是「相容既有呼叫端」，
+> 但這支 API 是全新的、**沒有任何既有呼叫端**——舊呼叫端走的是舊 `EXPORT_JOB` 那條路。
+> 真正的問題是它把**資料庫代理鍵**放進對外契約：呼叫端得先知道我們的內部識別才能點影像，
+> 而 UID 才是跨系統穩定的那個。
+>
+> 它同時還是個地雷：型別是 `int[]`，但說明寫「STUDY_REF 清單」、周圍欄位又全是 UID 字串，
+> 餵 UID 進去會拿到一個**沒有 body 的 400**（ASP.NET Core 的 JSON 綁定失敗預設不回訊息），
+> 呼叫端完全看不出錯在哪。實測時我自己就踩了這一腳。
+>
+> **注意方向性**：移除的只有「輸入側」。worker payload 的 `studyInfoList` 仍然會**輸出**
+> `studyRef`（legacy worker 需要），那個不能動。
 
 > #### 為什麼不是三個平行陣列（2026-08-17 改掉）
 > 原本 v2.0.28 的 API 平行收 `studyInstanceUid` / `seriesInstanceUid` / `sopInstanceUid`，
