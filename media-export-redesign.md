@@ -265,6 +265,22 @@ $$ LANGUAGE sql;
 | 階段 | 內容 | 影響 |
 |---|---|---|
 | 1 | ✅ **已寫好＋已驗證**：建新表 + 新 proc（`db_update_v2.0.28.sql`）；另 `v2.0.29.sql` 把 `HD_DEVICE_LICENSE` 從 DicomWeb repo 搬進共用序列並補回兩筆漏掉版控的設定。**兩份都還沒在任何環境執行** | 無 —— legacy 完全不動 |
+
+> ### ⚠️ 執行順序（版本鏈）
+> 每個 migration 結尾都有「Update Database Version」的 DO block，它**刻意不冪等**：
+> 重複執行會 `RAISE EXCEPTION 'Already update version: X'`（所以你會知道這版上過了），
+> 而且會檢查前一版必須正確，否則 `Need to update version X first!`。
+>
+> **.191 目前登記的版本是 `2.0.26`**，而 `v2.0.27` 原本沒有版本注記（一直開著）。
+> 2026-08-17 已為 `v2.0.27`／`28`／`29` 都補上，所以必須**依序**執行：
+>
+> ```
+> 2.0.26（現況） → v2.0.27 → v2.0.28 → v2.0.29
+> ```
+>
+> 跳過 `v2.0.27` 直接跑 `v2.0.28` 會被擋下來（`Need to update version 2.0.27 first!`）。
+> 三個檔的內容本身都是冪等的（`CREATE OR REPLACE` / `IF NOT EXISTS` / 條件式 UPDATE），
+> 只有版本注記那一段不是——那是設計如此。
 | 2 | Export API 改用新 proc；新增 UID 三層級與 `state` | Export 尚未有人使用，可自由改 |
 | 3 | net10 `HD.MediaPackage` worker 改領新 job（`claim_package_job` + 階層 `resolve` + 寫 `ITEM` 快照） | 要與舊路並行一段 |
 | 4 | Kiosk 重構時接新表（`PACKAGE_JOB_DISC`） | 屆時一起 |
