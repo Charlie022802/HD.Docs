@@ -20,6 +20,21 @@
 ## 環境與發布
 - [environments.md](environments.md) — 主機盤點（含 .191 測試機）+ 發布資料位置 `D:\HD-Release\` + 舊換新討論。
 
+## 原始碼託管（2026-08-17 起）
+`D:\Dev\HyperDigital` 底下的 **11 個 repo** 一律雙 remote，`origin` 指向公司自架 Forgejo：
+
+| remote | 位址 | 角色 |
+|---|---|---|
+| `origin` | `https://forgejo.hdtech.tw/charlie/<repo>.git` | **正本**，`git push` 的預設去向 |
+| `github` | `https://github.com/Charlie022802/<repo>.git` | 鏡像，要推得明寫 `git push github master` |
+
+repo 名稱與目錄名相同，**唯一的例外是 `Database\` 目錄對應的 repo 叫 `HDPACS-DB`**。
+`docs\`（本目錄）也是其中之一，repo 名 `HD.Docs` —— **改完文件要 commit + push，否則只留在這台開發機**。
+
+搬遷時的坑：`git remote rename origin github` 會連 `branch.master.remote` 一起改寫，
+所以對調兩個 remote 之後必須補 `git branch -u origin/master master`，
+否則 `git push` 仍然往 GitHub 跑，而且沒有任何提示。
+
 ## 系統一覽
 | 系統 | 文件 | 狀態摘要 |
 |---|---|---|
