@@ -378,12 +378,49 @@ legacy worker 用一個 `onlyJpeg` 布林值表達，那只夠表達「純 DICOM
 > 三個檔的內容本身都是冪等的（`CREATE OR REPLACE` / `IF NOT EXISTS` / 條件式 UPDATE），
 > 只有版本注記那一段不是——那是設計如此。
 | 2 | Export API 改用新 proc；新增 UID 三層級與 `state` | Export 尚未有人使用，可自由改 |
-| 3 | net10 `HD.MediaPackage` worker 改領新 job（`claim_package_job` + 階層 `resolve` + 寫 `ITEM` 快照） | 要與舊路並行一段 |
+| 3 | ✅ **已實作＋驗證（2026-08-17，未部署）**：worker 改領新表、支援 DICOM+JPEG、拆掉燒字的 NRE 地雷 | 新舊並行；舊表那條路不受影響 |
 | 4 | Kiosk 重構時接新表（`PACKAGE_JOB_DISC`） | 屆時一起 |
 | 5 | `rimage` 燒錄工作站接新表，硬編碼 user UUID 退場 | 最後 |
 | 6 | legacy `EXPORT_JOB` 與兩支 proc 停用 | 全部搬完才動 |
 
 `archive` **不在遷移路徑上** —— 功能要改版，舊流程直接淘汰（見第 1 節）。
+
+### 階段 3 怎麼做的（2026-08-17）
+
+**關鍵決定：讓資料庫組出與 legacy 同形的 payload**，而不是讓 worker 去接階層結構。
+`export.claim_package_job_payload(product, worker)` 一次完成「領取 ＋ 組 payload」，
+回傳 ＝ `HD_CONFIG` 系統設定 ‖ legacy 預設值 ‖ job 的 `OPTIONS` ‖
+`{ jobRef, studyInfoList, jobSource, contents, onlyJpeg }`。
+
+於是 worker 只改四個接縫，**700 多行的產出流程一行沒動**：
+
+| 接縫 | 改法 |
+|---|---|
+| 取 job | 先問新表（有 `SKIP LOCKED`），沒有再退回 `get_job_package_info` |
+| 回寫 | 依 `jobSource` 分流；legacy 單字母碼在 `UpdateJobStatus` 內翻譯成 `state` |
+| 快照 | 收集 `(SOP UID, 光碟檔名)` → `PACKAGE_JOB_ITEM`；寫失敗只記 log，不讓包變失敗 |
+| `contents` | `onlyJpeg` 的 if/else 拆成兩個獨立 `if`（才做得到 DICOM+JPEG）；判斷走 `WantsDicom`／`WantsJpeg`，舊表沒有 `contents` 時自動退回看 `onlyJpeg` |
+
+**驗證時抓到三個「同一個 job 走新舊兩條路會產出不同東西」的問題**，都補在 payload 裡
+（預設值的正本本來就該在 DB）：
+
+| 欄位 | 沒補的後果 |
+|---|---|
+| `dicomStoragePath` | worker 的 `Regex.Matches(null,…)` 直接 `ArgumentNullException` |
+| `containViewer` | C# `bool` 預設 false、legacy 預設 **true** → 不會附光碟 viewer |
+| `ignoreCompress` | 同上 → 會多壓一次 |
+
+這類差異純看程式碼很難注意到 —— **.NET 的型別預設值與 legacy proc 的預設值方向相反**。
+而且 JSON 鍵名對不上時**不會報錯**，只會靜靜落在預設值，所以驗證特地用 worker
+真正的 `PackageJob` 類別做反序列化（用複製一份的定義就測不到這件事）。
+
+`onlyJpeg` 改為一律由 `contents` 推導，避免兩個欄位各說各話（`contents` 是正本）。
+
+**兩顆地雷已拆**：`burnInJpeg` 的 NRE（燒字改成選配，`IsUsable` 把「設定夠不夠用」
+定義在一處）；不燒字時完全不碰 `System.Drawing`（直接 ImageSharp `SaveAsJpeg`，
+少一次 BMP 中轉，也避開 Linux 的 libgdiplus 依賴）。
+
+**尚未實機跑過完整打包** —— 要部署到 .191 才能驗檔案產出。
 
 ---
 
