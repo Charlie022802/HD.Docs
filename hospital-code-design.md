@@ -1,6 +1,8 @@
 # HOSPITAL_CODE 設計(動物醫院總主機)
 
-狀態:設計中(2026-08-11)。Schema 基準:`Database/HDPACS_20260811.sql`(自 .191 拉,已核對 `store_dicom`/`get_ae_config`/`RC_STUDY` 與 20260720 版一致)。
+狀態:**設計已完備,待開工**(2026-08-18)。開工前的設計決策全部定案:歸屬正本、server 端強制過濾、穩定代碼當 key、整院匯出／退場／誤刪防護、存量資料路徑。原「複製 .191 VM」已作廢,改以安裝檔全新裝。
+
+Schema 基準:`Database/HDPACS_20260811.sql`(自 .191 拉,已核對 `store_dicom`/`get_ae_config`/`RC_STUDY` 與 20260720 版一致)。**注意:該 dump 之後 DB 已推進到 v2.0.30(export 四張表等),真正要寫 migration 前請重拉一份 dump 再核對這四個 INSERT 點的行號。**
 
 ## 背景與範圍
 
@@ -22,6 +24,9 @@ CREATE TABLE public."HOSPITAL" (
     "HOSPITAL_CODE"      text PRIMARY KEY,
     "HOSPITAL_NAME"      text NOT NULL,
     "ENABLE"             boolean NOT NULL DEFAULT true,
+    -- 分界日:此日之後的檢查直接進總機,之前的留在舊院 VM 按需重送(見「存量資料」)。
+    -- per-hospital 而非全域,因為 50+ 家不會同一天切換。NULL = 尚未切換。
+    "CUTOVER_DATE"       date,
     "DATE_TIME_CREATED"  timestamptz NOT NULL DEFAULT now(),
     "DATE_TIME_MODIFIED" timestamptz NOT NULL DEFAULT now()
 );
@@ -91,6 +96,43 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 - Viewer:登入者帳號綁院別。
 - **RLS 第二道護欄**:RC_STUDY 上 policy(pgbouncer 環境需 `SET LOCAL`,既知)。細節此階段再展開。
 
+## 整院匯出／單院退場／誤刪防護(2026-08-18 定案)
+
+單一 DB 換來維護與設定串接的簡化,代價是**失去硬隔離**——原本「一院一 DB」時,交還一家醫院的資料就是 dump 一個 DB、清空一家就是 drop 一個 DB,而現在這兩件事都得自己建。現況盤點:`get_next_delete_study` 是**快取清理**(歸檔後釋放磁碟,`HD.CacheDelete` 在跑),不是退場;`RC_STUDY` 的外鍵**沒有 CASCADE**,逐層刪一直由應用層負責。也就是說整院匯出與退場目前**完全沒有機制**。
+
+**決策:在階段二就把它做成正式工具,不留到需要時寫一次性腳本。** 真正需要的時機(醫院解約、要求交還資料)是有時間壓力的,那時對一個承載 50 家醫院的共用 DB 現寫破壞性 SQL,是最不該發生的組合。
+
+**整院匯出** 接剛完成的 `export.PACKAGE_JOB`(選片機制已現成,見 `media-export-redesign.md`),但有三點必須另外處理:
+
+1. **不從 Export 公開 API 開 `hospitalCode` 條件**。那是管理動作,開在公開契約上等於讓任何持 `export.write` 的金鑰一次拉走全院影像。走管理主控台 + 專用 proc `export.create_hospital_export_jobs(hospital_code, ...)`。
+2. **必須分片**。`PACKAGE_JOB_DISC` 是 kiosk／rimage 專屬(1:1 於 job,只放 `EST_DISCS`／取件／付費),**不是分片機制**,而且新的 proc 還沒有人寫它。整院動輒 TB、`PACKAGE_JOB_ITEM` 會到百萬列等級,單一 job 不可行 → **依 `STUDY_DATE` 按月切成多個 job**,每個 job 可獨立重跑,失敗只需重跑那一片。
+3. **驗證是匯出的一部分**。逐 job 比對 `imageCount` 與 `PACKAGE_JOB_ITEM` 的快照筆數,不一致就不算完成。沒有驗證的匯出在退場情境下等於沒有匯出。
+
+**單院退場三段式**,順序不可換:
+
+| 段 | 動作 | 用意 |
+|---|---|---|
+| ① | `HOSPITAL.ENABLE = false` | 先讓進檔停止,否則邊刪邊進 |
+| ② | 整院匯出 + 逐 job 驗證 | 資料先離開,且證明離開得完整 |
+| ③ | `delete_hospital_studies(hospital_code, expected_study_count)` | 才刪 |
+
+**刪除鐵則**:批次刪 `RC_STUDY` **只允許經由 `delete_hospital_studies`** 這一個入口,而它強制要求傳入**預期筆數**當二次確認——數字與實際不符就 `RAISE EXCEPTION` 全數不動,不做部分刪除。逐層順序 OBJECT → SERIES → STUDY(外鍵無 CASCADE,proc 自己負責);檔案刪除不放在同一交易內(交易裡做檔案 I/O 一旦回滾就對不起來),沿用既有 CacheDelete 的兩段式慣例。
+
+**誤刪範圍**的第二道是階段二的 RLS:管理連線改用非 superuser 角色,policy 限定 `HOSPITAL_CODE`,如此連手寫 SQL 漏掉 WHERE 也打不到別院。這正是「單 DB 也能安全」的關鍵——它不只是給出口過濾用的。
+
+## 存量資料:分界日 + 按需重送(2026-08-18 定案)
+
+舊制一院一 VM、50+ 台。**決策:不做全量遷移,也不是完全不匯入,而是混合。**
+
+- **分界日**(`HOSPITAL.CUTOVER_DATE`,per-hospital):之後的新檢查儀器直打總機。
+- **分界日之前**:留在該院舊 VM 唯讀保存。**病患回診需要調閱舊片時,才從舊 VM 以 C-STORE 把那一筆重送進總機。**
+
+選這條路的理由是它避開了「50+ 台大遷移」這個獨立專案級別的工程,而且重送**自動走 `store_dicom`**——歸屬在進檔當下蓋章,與定案原則 2 完全一致,不需要任何額外的補欄邏輯。相對地,DB 層搬遷工具會繞過蓋章、`HOSPITAL_CODE` 得自己補,一致性也得自己保證,風險最高。
+
+**按需重送可行的前提是「重送兩次不會產生重複資料」**,這點靠既有行為成立:同院重送同一個 UID 會走 `store_dicom` 的 study 已存在分支(走 update,不會重複建 study);跨院同 UID 則由本設計的護欄 `RAISE EXCEPTION` 擋住。這是這個決策的支撐點,改動 `store_dicom` 時不能破壞它。
+
+**舊 VM 的退役條件**(兩者皆須成立):該院重送需求趨近零,且已完成一次整院匯出並驗證。在那之前舊 VM 不關機——它是分界日之前資料的唯一線上副本。
+
 ## 初始資料與管理
 
 - 舊 Proxy 設定檔的各院 AE 清單=現成「AE→院別」登記來源:一次性匯入 AE_MAIN+AE_CONFIG(NETWORK/DICOM 含 hospitalCode)。
@@ -98,9 +140,11 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 
 ## 施工順序
 
-1. **階段一(進檔就開始歸戶)**:migration(HOSPITAL+RC_STUDY 欄+索引)→ 改 `store_dicom`+`insert_dicom_info`+兩處 QC 複製 → NetworkConfig 加屬性 → AE 設定匯入。
-2. **階段二**:出口過濾(C-FIND/C-MOVE/QIDO/WADO/Viewer)+RLS。
-3. **階段三**:管理 UI(HOSPITAL/掛院別/認領)。
+1. **階段一(進檔就開始歸戶)**:migration(HOSPITAL 含 CUTOVER_DATE + RC_STUDY 欄 + 索引)→ 改 `store_dicom`+`insert_dicom_info`+兩處 QC 複製 → NetworkConfig 加屬性 → AE 設定匯入。
+2. **階段二**:出口過濾(C-FIND/C-MOVE/QIDO/WADO/Viewer)+RLS + **整院匯出／退場工具**(RLS 同時是誤刪的第二道,所以與出口過濾同階段做)。
+3. **階段三**:管理 UI(HOSPITAL/掛院別/認領/分界日/退場流程)。
+
+存量資料不佔階段:分界日之後自然發生,分界日之前的重送是營運動作而非開發項目(需要的是舊 VM 上已有的 C-STORE 能力)。
 
 ## 待議
 

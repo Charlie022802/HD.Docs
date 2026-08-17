@@ -288,7 +288,7 @@ $$ LANGUAGE sql;
 | 參數 | 預設 | 說明 |
 |---|---|---|
 | `anonymous` | `false` | 去識別 |
-| `containViewer` | `true` | 附光碟 viewer ⚠️ 不給就會附 |
+| `containViewer` | `true` | 附光碟 viewer ⚠️ 不給就會附（來源目錄必須有內容，見下） |
 | `ignoreCompress` | `true` | 不壓縮 ⚠️ 不給就是不壓縮 |
 | `dicomStoragePath` | `DICOM/{D8}.dcm` | 輸出內的相對路徑樣板 |
 | `contents` | `["dicom"]` | 包裡要放什麼：`dicom`／`jpeg`，**可同時給兩個** |
@@ -297,6 +297,25 @@ $$ LANGUAGE sql;
 （`integer`，預設 0）與索引，不進 `OPTIONS` jsonb（否則 claim 排序得先解 jsonb）。
 範圍 −9～9 由 API 擋（proc 不擋）：欄位是 `integer`，不設上限的話一個 `2147483647`
 就能永久霸佔佇列頭，而那種值本身沒有意義——排序只看相對大小。
+
+### `containViewer`：曾經會靜靜出一張沒有看片程式的光碟（2026-08-18 修）
+
+先前記錄寫「`.191` 的 `cd-viewer-win` 是 0 bytes,所以 `containViewer=true` 的打包會失敗,測試一律傳 false」。**實測結果相反,而且更糟**：
+
+| | zip 內容 | viewer 執行檔 | job 狀態 |
+|---|---|---|---|
+| `containViewer=true` | DICOM + DICOMDIR + `rules.enc` + `study_elements.json` | **0** | `ready` |
+| `containViewer=false` | DICOM + DICOMDIR | 0 | `ready` |
+
+打包**沒有失敗**。產出的是一張「宣稱含看片程式、附了授權規則檔與影像索引、但沒有看片程式本體」的光碟——病患拿到就是張打不開的片,而整條管線一聲不響。比失敗更難發現。
+
+根因在 `PackageService.DirectoryCopy`：來源目錄不存在時它只 `LogError` 然後 **`return`**,不丟例外;目錄存在但是空的話,連那行 error 都不會有。兩種情況都讓打包一路標成完成。
+
+**已修**（HD.Net10）：`containViewer=true` 分支複製前先擋——`viewerPath` 未設定／目錄不存在／目錄是空的,三種都丟例外,由外層 catch 寫進 `ERROR_TEXT` 變成 `failed` 並說明原因。
+
+**同時補上真正的缺口**：`cd-viewer-win` 之所以是空的,不是某次漏傳,而是 **`HD.DicomImageViewer/deploy/publish.ps1` 只發佈 Viewer／Executer／LinkClient 三個,`HD.DicomImageViewer.Media`（光碟版）從來不在清單裡**——net10 時代沒有人產出過它。新增 `deploy/publish-cdviewer.ps1`（與 installer 的 staging 刻意分開,交付對象與更新節奏都不同）：self-contained win-x64（光碟會交到病患手上,那台電腦不會有 .NET Runtime）、`viewer.media.json` 以正式檔而非 `.sample` 出貨（光碟上沒有安裝程式能補產）、缺 mesa 就中止（軟體 OpenGL,無 GPU 機器少了它 3D/MPR 會靜靜黑掉）。
+
+**產出 245 MB / tar.gz 96 MB**,其中 `mesa/libgallium_wgl.dll` 佔 58.7 MB、其餘是 .NET self-contained（含 Windows Desktop runtime pack 固定帶的 WPF 組件約 23 MB,`PublishTrimmed` 官方不支援 WinForms 故不能砍）。對 DVD（4.7 GB）無妨,但**燒 CD（700 MB）只剩約 455 MB 放影像**——744 張的 CT 約 166 MB 還放得下,要知道有這個上限。
 
 ### `priority`：診間急件插隊（2026-08-17 開放）
 

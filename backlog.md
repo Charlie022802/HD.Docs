@@ -211,7 +211,7 @@
 - **參數什麼時候定**：8/18 那台裝上去之後會第一次拿到**真實的 log 量與錯誤樣態**，那時候再定「送什麼、留多久、緩衝多大」會準得多；現在定等於用猜的。
 
 ### REQ-017　NuGet 套件已知弱點（NU1903）
-- **狀態**：**低風險部分已修 + 驗證通過（2026-08-17）**；`SSH.NET` 與 `Magick.NET` 待排一輪回歸。
+- **狀態**：**全部處理完畢（2026-08-18）**。八個 repo 掃下來零弱點，唯一例外是 `HD.Animal`（專案擱置、未來可能不再使用，故不動）。
 - **怎麼發現的**：`HD.Export` 建置時的 `NU1903` 警告（`Microsoft.OpenApi 2.0.0` 高嚴重性）。**警告不會擋建置，所以很容易一直被忽略**——順手把所有 repo 掃了一遍才發現不只一處。
 - **掃描方式**（值得定期跑，每個 repo）：
   ```
@@ -225,11 +225,15 @@
   - `Cryptography.Xml` 那行**本來就是上一輪為修弱點而加的顯式 pin**（csproj 註解寫著 CVE-2026-33116 等），程式碼沒有用到它的 API（無 `SignedXml`／`EncryptedXml`），所以升 patch 沒有行為風險。
   - **驗證**：DicomWeb 單元 **87/87**、整合 **31/31**；Export 實跑 `/health` 與 `/openapi/v1.json` 確認 schema 未受影響。⚠️ 過程中整合測試一度 24 失敗，是**連不到 .191 的 DB**（逾時 15 秒→500），不是升版造成——DB 通了之後 31/31、18 秒跑完。判斷這類失敗要先看「失敗數與耗時的形狀」。
   - **尚未部署**：三支都還沒上生產，下次部署時一起帶上。
-- **⏳ 待處理（要排回歸才敢動）**：
-  | 套件 | 何處 | 用途 | 為什麼要小心 |
-  |---|---|---|---|
-  | `SSH.NET` 2024.1.0（**High**） | `HD.Net10\HD`（被多支服務參考）＋`HD.Animal.Proxy.Controller` | **主 PACS 的 SFTP 傳輸**（`DicomTransmitService`／`Tools/SftpClientExtension.cs`） | 2024.1.0 → 2025.x 有 API 變動，而這是影像對外傳送的路徑；掛了等於送不出去 |
-  | `Magick.NET-Q16-AnyCPU` 14.14.0（Moderate） | `HD.Net10\HD` | 影像處理管線 | 影像管線核心，升版要看輸出有無差異 |
+- **✅ SSH.NET（High）→ 移除，不是升版**（2026-08-18，HD.Net10 `80a0cee`）
+  - 弱點 `GHSA-q939-rpr3-3284` 在 **`ScpClient.Download()`** 的遞迴目錄下載（不驗證伺服器回傳的檔名，惡意 SCP 伺服器可用 `../` 寫到目錄外）。**整個 codebase 沒有任何一處用 `ScpClient`**，實際暴露是零。
+  - 更關鍵的是**先前的認定有誤**：這個套件在 `HD.Net10` 根本沒被使用。唯一引用是 `Tools/SftpClientExtension.cs` 的 `CreateDirectoryRecursively`，它**沒有任何呼叫點**；`GatewaySetting.cs` 的 `GatewaySftp` 也沒有讀取者。原記錄寫的「主 PACS 的 SFTP 傳輸／`DicomTransmitService`」不成立——`DicomTransmitService` 沒有碰 SSH.NET。
+  - 所以處置是移除 `PackageReference` + 刪掉那支死碼。`HD.csproj` 被九支服務參考，一次清掉九支的 NU1903，且**零回歸風險**。`GatewaySetting.cs` 保留（純 POCO、不依賴該套件）。
+- **✅ Magick.NET 14.14.0 → 14.16.0**（2026-08-18，同 repo）
+  - 14.14.0 累積 **29 個 advisory**（11 中、18 低）。用途只有一處：`HD.DicomTransmit` 的 Encapsulated PDF 轉圖（`pdfToImage`），用到 `MagickReadSettings`／`Density`／`MagickImageCollection.Read`／`Scale`／`Alpha`／`Write(Jpg)`。
+  - **回歸用實測而非推論排除**：①那組 API 在新版編譯無變動 ②兩版產生的 Ghostscript 命令列**逐字相同** ③以真實 CT 影像跑完整 `Scale`＋`Alpha`＋JPEG 編碼路徑，輸出**像素逐位元相同**。
+  - 比對要比**解碼後的像素**：PNG 檔案位元組會因 ImageMagick 寫入時間戳而每次不同，直接比檔案 SHA 會誤判成「版本有差異」（我一開始就誤判了一次）。
+  - **重要副產物**：ImageMagick 的 PDF 是**委派給外部 Ghostscript**（實測 `gswin64c.exe` exit 127 現形）。套件升版不改變這件事——**主機沒裝 gs，`pdfToImage` 本來就不會動**，與版本無關。要確認生產主機是否具備。
 - **建議**：把上面那條 `dotnet list package --vulnerable` 納入發版前檢查（或 CI），否則 `NU1903` 這種「不擋建置的警告」會累積到沒人記得為什麼在那裡。
 
 ---
