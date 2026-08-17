@@ -28,6 +28,19 @@
 - **狀態**：**薄層 API 完成 + .199 生產端到端驗證通過**（2026-08-06）；剩「Export 拆成獨立專案」為後續。
 - **端到端驗證**：POST 建立→201；.191 worker 打包→P；GET 查狀態→通；GET 下載→200（合法 DICOM 包）。過程修 2 個 legacy proc bug（`insert_package_job` patient CASE + accession/patientId TRIM，寫進 v2.0.27）+ burnTemp 搬 NAS（`HD_CONFIG` burnTempPath→`/home/HD/data/burnTemp`）。詳記憶 project_req003_export_webapi。
 - **決策**：Export 定案**獨立成一支 API**（不併 DicomWeb，薄殼端點目前在 DicomWeb 待拆）；auth 先用現有 API Key、之後隨 Keycloak 換。進檔字串正規化另立 REQ-009。
+- **⚠️ 參數盤點：`BURN_INFO` 有一半欄位 net10 worker 根本不讀（2026-08-17 查證）**。查了三層才確定——API 的 `CreatePackageRequest` → proc `export.insert_package_job` 寫進 `BURN_INFO` → `get_job_package_info()`（[HDPACS_20260811.sql:2498](../Database/HDPACS_20260811.sql)）把 **`burn_info` 整包**丟給 worker → 但 worker 反序列化用的 `HD.Net10/HD.MediaPackage/Class/PackageJob.cs` 只有部分屬性，其餘**靜靜被丟掉**：
+
+  | 參數 | proc | net10 worker | 結論 |
+  |---|---|---|---|
+  | `anonymous`／`containViewer`／`ignoreCompress`／`dicomStoragePath` | 寫入 | `PackageJob` 有 | ✅ 有效 |
+  | `ignoreMultiframe` | **proc 內部當篩選條件**（`CONVERT_STATUS->>'mpeg4'='N'`） | 無此屬性 | ⚠️ 見下 |
+  | `packageSevenZip`／`packageSevenZipName` | 寫入 | **無** | ❌ 空頭 |
+  | `storageUserId`／`storagePassword`／`opticalDiskDrive` | 寫入 | **無** | ❌ 空頭 |
+
+  全 `HD.Net10` 搜 `SevenZip|7z|storagePassword|storageUserId` 零結果。**已於 2026-08-17 把 `packageSevenZip`／`packageSevenZipName` 從 API 拿掉**（Export 尚未有人使用，拿掉的又是本來就沒作用的東西），並補上 proc/worker 都支援、卻獨漏沒開的 `dicomStoragePath`。`storageUserId`／`storagePassword`／`opticalDiskDrive` 維持不開放。
+  **→ 日後真的要「Export 整支取代 hd-media-package」時，這些欄位得先決定是實作還是正式廢掉**，別讓它們一直以「proc 寫得進去、沒人讀」的狀態存在。
+- **⚠️ `ignoreMultiframe` 正在失去意義（REQ-008 的交叉影響，只看單一需求的文件看不出來）**：它在 proc 裡的作用是篩 `CONVERT_STATUS->>'mpeg4'='N'`，但 **REQ-008 移除 DicomToVideo 後 `insert_dicom_info` 一律標 `mpeg4='N'`** → 對新資料 true/false 篩出來完全相同，只有 REQ-008 之前的舊資料還有差別。目前保留參數但已在 API 文件註明。
+- **API 說明頁（2026-08-17）**：`CreatePackageRequest` 各欄位的預設值與「留空＝不送該欄位、由 proc 套預設」寫進 `///` XML 註解並開 `GenerateDocumentationFile`，`/scalar` 直接看得到。**預設值的正本仍在 proc**（C# 刻意不給預設值，避免兩份定義各自漂移）。兩個實作陷阱：`<remarks>` **不會**進 OpenAPI description（只有 `<summary>` 會）；多行 summary 會把 XML 檔的縮排一起帶進去，4 空格開頭在 markdown 會變成程式碼區塊 → 一律寫成單行。
 - **系統**：（待定）DicomWeb 或 主 PACS 媒體模組
 - **要什麼**：把現有 CD/DVD 燒錄／媒體打包（HD.MediaPackage）開成 REST API：
   1. **建立打包**：使用者呼叫 API 送出打包需求（指定 study 等）→ 回一個 job id。
