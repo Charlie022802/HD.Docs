@@ -238,6 +238,42 @@ $$ LANGUAGE sql;
 | `containViewer` | `true` | 附光碟 viewer ⚠️ 不給就會附 |
 | `ignoreCompress` | `true` | 不壓縮 ⚠️ 不給就是不壓縮 |
 | `dicomStoragePath` | `DICOM/{D8}.dcm` | 輸出內的相對路徑樣板 |
+| `contents` | `["dicom"]` | 包裡要放什麼：`dicom`／`jpeg`，**可同時給兩個** |
+
+### `contents`：DICOM／JPEG／兩者都要（2026-08-17，Viewer 端需求）
+
+legacy worker 用一個 `onlyJpeg` 布林值表達，那只夠表達「純 DICOM」與「純 JPEG」——
+**表達不出「兩者都要」**，而那正是 Viewer 要的第三種。所以改成可列舉的集合：
+
+```json
+"contents": ["dicom"]            // 預設，等同 legacy onlyJpeg=false
+"contents": ["jpeg"]             // 只要 JPEG，等同 legacy onlyJpeg=true
+"contents": ["dicom", "jpeg"]    // 兩者都要 ← legacy 表達不了
+```
+
+大小寫、前後空白、重複都會被正規化（`["JPEG"," dicom "]` → `["dicom","jpeg"]`）；
+值打錯（例如 `"jpg"`）會回 **400 並列出錯的值**，不會靜靜忽略——那種錯最難查。
+為了讓 legacy worker 至少「純 JPEG」是對的，`OPTIONS` 裡會**同時**寫入 `onlyJpeg`。
+
+**JPEG 是 worker 打包時即時從 DICOM 轉的**（fo-dicom `DicomImage.RenderImage()`），
+不是預生檔案，所以 REQ-007 停掉 DicomToImage 對它沒有影響。輸出在 `JPG/` 子目錄、
+檔名為 `{SOPInstanceUID}.jpg`。
+
+> #### ⚠️ 階段 3 動 worker 前必須先修的兩件事
+> 1. **`job.burnInJpeg` 完全沒有 null 檢查**（`PackageService` 169／172-173／176／182 行：
+>    `fontSizePercent`、`fontColor[0]`、`topLeft.Count()`、`padding[0]`），而 `burnInJpeg`
+>    目前**沒有任何設定來源**（`BURN_WORKSTATION/SYSTEM` 只有 `burnTempPath`／`queryLimit`／
+>    `viewerPath`／`viewerSize` 四個鍵）。所以「只要 JPEG、不要燒字」這個最自然的需求
+>    會直接讓 worker 吃 NullReferenceException。**燒字必須變成選配。**
+> 2. **`onlyJpeg` 只能二選一**，要支援 DICOM+JPEG 得改成讀 `contents`。
+>
+> 目前這條路**不會被執行**（worker 還在讀舊表，領不到新 job），所以現在送 `jpeg` 不會
+> 造成任何後果——但 worker 一改成領新表，上面兩件沒修就會立刻炸。
+>
+> 另外燒字用的是 `System.Drawing`（`Font`／`Graphics.FromImage`，套件 `System.Drawing.Common 4.7.3`），
+> 在 Linux 依賴 libgdiplus（離線環境包有含）。但因為這條路從未被啟用，**它從來沒有在 Linux 上
+> 真的跑過**。程式碼裡其實已經在用 ImageSharp（`AsSharpImage()`／`SaveAsBmp`），只是又轉回
+> `System.Drawing.Bitmap` 才燒字——改用 ImageSharp 繪字就能整段拿掉 GDI+ 依賴。
 
 **`ignoreMultiframe` 不再開放**：舊 proc 用它篩 `CONVERT_STATUS->>'mpeg4'='N'`，但 REQ-008
 移除 DicomToVideo 之後進檔一律標 `mpeg4='N'`，對新資料 true/false 結果完全相同；新的
@@ -268,6 +304,11 @@ $$ LANGUAGE sql;
 都能查到別人的 job**。所以 `ExportService.GetStatusAsync` 取回後比對 `product` 與 `requestedBy`，
 不符回 404（不是 403 —— 403 等於告訴對方這個 job 存在）。
 日後若有第二個消費者（kiosk）也走新表，這一關要記得各自做，或把它下推到 proc。
+
+`DELETE /export/packages/{jobRef}`（scope `export.write`）→ 取消還沒開始打包的工作。
+`200` 回取消後的狀態／`409` 已在打包中或已完成（不能取消）／`404` 查無或非本人。
+**只允許 `queued`／`claimed`** —— 要不要能中斷正在 `processing` 的 job 仍是待決（worker 得在
+打包迴圈裡輪詢檢查）。
 
 `GET /export/packages/{jobRef}/download` → `200 application/zip`／`409` 未完成／`404` 不存在
 
