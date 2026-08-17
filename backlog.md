@@ -211,7 +211,9 @@
 - **參數什麼時候定**：8/18 那台裝上去之後會第一次拿到**真實的 log 量與錯誤樣態**，那時候再定「送什麼、留多久、緩衝多大」會準得多；現在定等於用猜的。
 
 ### REQ-017　NuGet 套件已知弱點（NU1903）
-- **狀態**：**全部處理完畢（2026-08-18）**。八個 repo 掃下來零弱點，唯一例外是 `HD.Animal`（專案擱置、未來可能不再使用，故不動）。
+- **狀態**：**七個 repo 零弱點（2026-08-18）**。`HD.Animal` 例外：**該 repo 已凍結不修改**（見 [systems/animal-proxy.md](systems/animal-proxy.md)），其弱點經評估後接受。
+  - 關鍵區分是「有沒有部署」：`.222` 線上跑四支（CStoreSCP／WorklistSCP／ServiceManager／WebController）。**`SSH.NET` High 只存在於沒有部署的 `HD.Animal.Proxy.Controller`（WinForms）**，且整個 repo 沒有 `ScpClient`（弱點所在），暴露為零。
+  - 唯一落在線上程式的是 **WebController 的 `SQLitePCLRaw.lib.e_sqlite3` 2.1.11 High**（CVE-2025-6965，SQLite 記憶體毀損）。它確實在用 SQLite（使用者帳號 DB），但攻擊向量需要攻擊者能送任意 SQL，而該服務只發 EF Core 參數化查詢、DB 是本機檔案、又在封閉網路 → 接受。**要修只需 `Microsoft.EntityFrameworkCore.Sqlite` 10.0.10 → 10.0.11**（實測會拉到 SQLitePCLRaw 2.1.12、掃描轉零），純傳遞相依不動程式碼。
 - **怎麼發現的**：`HD.Export` 建置時的 `NU1903` 警告（`Microsoft.OpenApi 2.0.0` 高嚴重性）。**警告不會擋建置，所以很容易一直被忽略**——順手把所有 repo 掃了一遍才發現不只一處。
 - **掃描方式**（值得定期跑，每個 repo）：
   ```
