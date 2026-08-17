@@ -186,6 +186,21 @@ $$ LANGUAGE sql;
 
 ### 4.3 新 proc 一覽（全部新開，不動 legacy）
 
+**✅ 已實作於 `Database/HDPACS/db_update_sql/db_update_v2.0.28.sql`**（2026-08-17，尚未套用任何環境）。
+驗證方式＝把整份 migration ＋ 功能冒煙測試包在 `BEGIN … ROLLBACK` 裡對 .191 實跑，
+所以語法、型別、jsonb 路徑、proc 邏輯都被真的 PostgreSQL 檢查過，而 DB 沒有任何殘留：
+
+- 拿一個 **744 張、9 個 series** 的真實 study 走完 create → claim → resolve → record → update → cancel
+- `create` 的 `imageCount` 與 `resolve` 展開的張數一致；每個 series 的 `imageCount` 與 `instances` 長度相符
+- 三個層級各自正確（study 744／series 5／instance 2）
+- **聯集不重複計算**：study(744) ＋ 其中 2 張 SOP ＝ 744 而非 746
+- 負向case也對：空條件、不存在的 UID、對 `ready` 的 job 取消，都正確被拒
+- `record_package_job_items` 重複呼叫是 UPSERT，不報錯
+
+（過程中被驗證抓到一個錯：把 `package_job_objects` 從 `plpgsql` 改成 `sql` 時，
+開頭的 `BEGIN RETURN QUERY` 拿掉了但**結尾的 `END;` 忘了拿掉** —— body 的最後一個語句
+變成 `END;` 而不是 SELECT，PostgreSQL 回 `42P13`。純看程式碼很難發現。）
+
 | proc | 用途 |
 |---|---|
 | `export.create_package_job(jsonb)` | 建立：寫 `PACKAGE_JOB` + `PACKAGE_JOB_SELECTION`，回 `{jobId, imageCount, totalBytes}` |
@@ -249,7 +264,7 @@ $$ LANGUAGE sql;
 
 | 階段 | 內容 | 影響 |
 |---|---|---|
-| 1 | 建新表 + 新 proc（migration） | 無 —— legacy 完全不動 |
+| 1 | ✅ **已寫好＋已驗證**：建新表 + 新 proc（`db_update_v2.0.28.sql`）；另 `v2.0.29.sql` 把 `HD_DEVICE_LICENSE` 從 DicomWeb repo 搬進共用序列並補回兩筆漏掉版控的設定。**兩份都還沒在任何環境執行** | 無 —— legacy 完全不動 |
 | 2 | Export API 改用新 proc；新增 UID 三層級與 `state` | Export 尚未有人使用，可自由改 |
 | 3 | net10 `HD.MediaPackage` worker 改領新 job（`claim_package_job` + 階層 `resolve` + 寫 `ITEM` 快照） | 要與舊路並行一段 |
 | 4 | Kiosk 重構時接新表（`PACKAGE_JOB_DISC`） | 屆時一起 |
