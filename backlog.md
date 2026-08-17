@@ -210,6 +210,28 @@
 - **第二階段（之後）**：上傳到院內 ViewerWebApi。收集與打包的邏輯**刻意跟出口分開**，屆時同一份包直接送上去，`DiagnosticPackage` 一行都不用改；而且「存成檔案」仍是必要退路（封閉網路、服務沒起來、版本對不上時總得有辦法把包弄出來）。環形緩衝＋Error 觸發那套設計也留到那時一起做。
 - **參數什麼時候定**：8/18 那台裝上去之後會第一次拿到**真實的 log 量與錯誤樣態**，那時候再定「送什麼、留多久、緩衝多大」會準得多；現在定等於用猜的。
 
+### REQ-017　NuGet 套件已知弱點（NU1903）
+- **狀態**：**低風險部分已修 + 驗證通過（2026-08-17）**；`SSH.NET` 與 `Magick.NET` 待排一輪回歸。
+- **怎麼發現的**：`HD.Export` 建置時的 `NU1903` 警告（`Microsoft.OpenApi 2.0.0` 高嚴重性）。**警告不會擋建置，所以很容易一直被忽略**——順手把所有 repo 掃了一遍才發現不只一處。
+- **掃描方式**（值得定期跑，每個 repo）：
+  ```
+  dotnet list package --vulnerable --include-transitive
+  ```
+- **✅ 已修（都是「傳遞相依或純 pin」＝不動程式碼、風險低）**：
+  | repo | 動作 |
+  |---|---|
+  | HD.Export | `Microsoft.AspNetCore.OpenApi` 10.0.7 → **10.0.11**（連帶解掉傳遞的 `Microsoft.OpenApi 2.0.0`） |
+  | HD.Pacs.DicomWeb | 同上；`Microsoft.Data.Sqlite` 9.0.6 → **10.0.11**（解傳遞的 `SQLitePCLRaw`，順帶對齊 net10）；`System.Security.Cryptography.Xml` 10.0.6 → **10.0.11** |
+  - `Cryptography.Xml` 那行**本來就是上一輪為修弱點而加的顯式 pin**（csproj 註解寫著 CVE-2026-33116 等），程式碼沒有用到它的 API（無 `SignedXml`／`EncryptedXml`），所以升 patch 沒有行為風險。
+  - **驗證**：DicomWeb 單元 **87/87**、整合 **31/31**；Export 實跑 `/health` 與 `/openapi/v1.json` 確認 schema 未受影響。⚠️ 過程中整合測試一度 24 失敗，是**連不到 .191 的 DB**（逾時 15 秒→500），不是升版造成——DB 通了之後 31/31、18 秒跑完。判斷這類失敗要先看「失敗數與耗時的形狀」。
+  - **尚未部署**：三支都還沒上生產，下次部署時一起帶上。
+- **⏳ 待處理（要排回歸才敢動）**：
+  | 套件 | 何處 | 用途 | 為什麼要小心 |
+  |---|---|---|---|
+  | `SSH.NET` 2024.1.0（**High**） | `HD.Net10\HD`（被多支服務參考）＋`HD.Animal.Proxy.Controller` | **主 PACS 的 SFTP 傳輸**（`DicomTransmitService`／`Tools/SftpClientExtension.cs`） | 2024.1.0 → 2025.x 有 API 變動，而這是影像對外傳送的路徑；掛了等於送不出去 |
+  | `Magick.NET-Q16-AnyCPU` 14.14.0（Moderate） | `HD.Net10\HD` | 影像處理管線 | 影像管線核心，升版要看輸出有無差異 |
+- **建議**：把上面那條 `dotnet list package --vulnerable` 納入發版前檢查（或 CI），否則 `NU1903` 這種「不擋建置的警告」會累積到沒人記得為什麼在那裡。
+
 ---
 
 ## 已完成（近期）
