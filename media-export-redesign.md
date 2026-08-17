@@ -239,6 +239,10 @@ $$ LANGUAGE sql;
 | `ignoreCompress` | `true` | 不壓縮 ⚠️ 不給就是不壓縮 |
 | `dicomStoragePath` | `DICOM/{D8}.dcm` | 輸出內的相對路徑樣板 |
 
+**`ignoreMultiframe` 不再開放**：舊 proc 用它篩 `CONVERT_STATUS->>'mpeg4'='N'`，但 REQ-008
+移除 DicomToVideo 之後進檔一律標 `mpeg4='N'`，對新資料 true/false 結果完全相同；新的
+`package_job_objects` 也不做這個篩選。留著就是第二個空頭參數（剛拿掉 7z 那兩個就是這個原因）。
+
 **回應** `201`：
 ```json
 { "jobRef": 123, "imageCount": 248, "totalBytes": 335544320 }
@@ -248,11 +252,22 @@ $$ LANGUAGE sql;
 
 `GET /export/packages/{jobRef}`：
 ```json
-{ "jobRef": 123, "state": "processing", "progress": 40,
-  "downloadReady": false, "errorMessage": null, "status": "p" }
+{ "jobId": 123, "state": "processing", "progress": 40,
+  "downloadReady": false, "errorMessage": null, "packagedCount": 96 }
 ```
-新增 `state`（`queued`／`processing`／`ready`／`failed`／`canceled`）—— Viewer 用這個，
-不必去記 legacy 的單字母大小寫。`status` 保留原始碼供除錯。
+`state` ＝ `queued`／`processing`／`ready`／`failed`／`canceled`。
+
+**legacy 的單字母 `status` 不再回傳** —— 新表沒有那個欄位（先前規格寫「保留供除錯」是錯的，
+硬留只會回一個永遠是空字串的欄位）。`packagedCount` 是已寫入稽核快照的張數，可當細粒度進度。
+
+**不對外回傳產出路徑**：那是伺服器的檔案系統結構，呼叫端不需要，而且會出現在錯誤回報與截圖裡。
+下載一律走 `/download`。
+
+**⚠️ 歸屬檢查在 API 層**：舊的 `get_package_job_status` 把 productUUID+userUUID 傳進 proc 比對、
+非本人回 null；新的 `get_package_job` 只吃 jobId，**若不比對，任何持有 `export.read` 的金鑰
+都能查到別人的 job**。所以 `ExportService.GetStatusAsync` 取回後比對 `product` 與 `requestedBy`，
+不符回 404（不是 403 —— 403 等於告訴對方這個 job 存在）。
+日後若有第二個消費者（kiosk）也走新表，這一關要記得各自做，或把它下推到 proc。
 
 `GET /export/packages/{jobRef}/download` → `200 application/zip`／`409` 未完成／`404` 不存在
 
