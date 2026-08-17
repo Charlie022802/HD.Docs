@@ -118,6 +118,19 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 
 **刪除鐵則**:批次刪 `RC_STUDY` **只允許經由 `delete_hospital_studies`** 這一個入口,而它強制要求傳入**預期筆數**當二次確認——數字與實際不符就 `RAISE EXCEPTION` 全數不動,不做部分刪除。逐層順序 OBJECT → SERIES → STUDY(外鍵無 CASCADE,proc 自己負責);檔案刪除不放在同一交易內(交易裡做檔案 I/O 一旦回滾就對不起來),沿用既有 CacheDelete 的兩段式慣例。
 
+> **這個缺口當天就踩到了（2026-08-18）**：`.191` 有 6 筆匯入冒煙測試資料處於「DB 有列、
+> 實體檔案已被清掉、又沒有 nearline 備份」的狀態，`delete_dicom` 的 `deleteDatabase=true`
+> 分支因為要求 `IS_NEARLINE_CACHED` 而拒絕它們 —— 完全就是上面說的沒有入口。
+> 最後寫在 `db_update_v2.0.30.sql` 的一次性清理段落，而**那段可以直接當
+> `delete_hospital_studies` 的骨架**：逐層刪除順序、「先算預期筆數再比對、不符就整批不動」
+> 的護欄都已具備，並在真實資料上驗過（BEGIN…ROLLBACK 先確認六層各 6 列才 COMMIT，
+> 事後 DB 14 項＋API 3 項檢查全過）。
+>
+> 那次也證實**刪除順序不能憑印象**：指向 `RC_STUDY`/`RC_SERIES`/`RC_OBJECT` 的 13 條外鍵
+> 裡只有 `RC_OBJECT_HASH` 是 CASCADE，而 `RC_OBJECT_CONVERT` 有資料且是 NO ACTION ——
+> 只照 CASCADE 判斷就會漏掉它、刪 `RC_OBJECT` 時撞外鍵。真正實作時要用
+> `information_schema` 掃過所有帶 `*_REF` 欄位的表，不要看 dump 猜。
+
 **誤刪範圍**的第二道是階段二的 RLS:管理連線改用非 superuser 角色,policy 限定 `HOSPITAL_CODE`,如此連手寫 SQL 漏掉 WHERE 也打不到別院。這正是「單 DB 也能安全」的關鍵——它不只是給出口過濾用的。
 
 ## 存量資料:分界日 + 按需重送(2026-08-18 定案)

@@ -288,7 +288,7 @@ $$ LANGUAGE sql;
 | 參數 | 預設 | 說明 |
 |---|---|---|
 | `anonymous` | `false` | 去識別 |
-| `containViewer` | `true` | 附光碟 viewer ⚠️ 不給就會附（來源目錄必須有內容，見下） |
+| `containViewer` | DB `true` / **Export API `false`** | 附光碟 viewer。這是唯一「API 預設刻意不同於 DB 預設」的欄位，見下 |
 | `ignoreCompress` | `true` | 不壓縮 ⚠️ 不給就是不壓縮 |
 | `dicomStoragePath` | `DICOM/{D8}.dcm` | 輸出內的相對路徑樣板 |
 | `contents` | `["dicom"]` | 包裡要放什麼：`dicom`／`jpeg`，**可同時給兩個** |
