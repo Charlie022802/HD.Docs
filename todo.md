@@ -67,7 +67,7 @@
 - [x] **Keycloak Events 已開**（2026-08-06 使用者自己開：User events + Admin events + 保留期）。註：原生 UI 的 User 欄只顯示 UUID，要點開才見帳號 → 主控台稽核頁（Admin API 拉 events、UUID→帳號人話呈現）解決。
 - [x] **共享事件表落地（2026-08-06 程式面全完成）**：v2.0.27 migration（PRODUCT/CATEGORY 欄+索引，Database `e36249a`）；共用 `DbAuditLogger`（HD.Shared `69e08a2`）；DicomWeb 補欄+category 粗分（`a15cb65`）、Export（`ad734b3`）、主控台（`34ca38d`）皆改寫事件表。**全部完成（2026-08-06 晚）**：.191 已套 migration；DicomWeb（build 205757）/Export（205819）已重部署 .199（部署慣例改為 ~/deploy-dicomweb、~/deploy-export 分資料夾）；**三產品實測入表**：dicomweb/operation（qido）、export/audit（壞 key 攔截）、admin-console/audit（金鑰生命週期），SOURCE_IP 皆正確（VPN 來源 192.168.68.253／本機 ::1）。
 - [x] **DicomWeb 切 Keycloak（2026-08-07/08，HD.Pacs.DicomWeb `4c9535b`→`ed4156b`、HD.Shared `79ee858`，部署 .199 驗證通過）**：Admin UI=OIDC 導頁（登入卡→SSO→後台→RP-initiated 登出）；API JWT=AddKeycloakJwtBearer（aud=hd-pacs 嚴格）+OnTokenValidated 查 HD_USER 補 scopes（無對應→401）；退役 JwtIssuer/DevSigningKeyProvider/dev-token/固定管理帳密/HD_USER.PASSWORD 驗證。新坑三枚：**登出需 id_token_hint→必須 SaveTokens=true**；**DefaultChallengeScheme 別設 OIDC**（未登入會跳過登入卡直彈 Keycloak）；**Valid post logout redirect URIs 用 `+`**。單元 87/87、整合 31/31 綠。
-- [ ] Viewer 隨新版切 Keycloak。
+- [ ] **Viewer 切 Keycloak — 雙軌（2026-08-17 決策）**：醫院封閉網路連不到 sso.ltcd.tw，**之後會在各醫院內部自建 Keycloak**（尚未架設）。→ 登入這塊**可提前實作**（Authority 指院內位址、由設定決定），**但不替換現行 WebApi 帳密登入**（`LoginForm.CheckUser` → `/api/v2.0/user/login`）；兩條路並存、設定切換，院內 SSO 到位才開。AuthZ 仍查 DB。詳 [systems/identity.md](systems/identity.md)。
 - [x] ApiTest / TestClient 工具更新（2026-08-08，`f033af4`）：登入改 Keycloak password grant 或直接貼 API Key（TestClient 帳號欄貼 `hdp_` 開頭免密碼）；金鑰管理頁/測試段移除（歸主控台）；ApiTest 加「dev-token 與 /api/v1/api-keys 應 404」防呆；Smoke 流程 Import 明帶 X-Calling-AE-Title。
 - [x] 抽跨產品共用 Auth lib（2026-08-06 完成：HD.Shared.Auth＝Keycloak 取/驗 token＋API Key handler＋ScopeCatalog＋HdUserRepository；DicomWeb/Export 已用）。
 - [x] Keycloak 驗證面全通：audience mapper（hd-api→hd-pacs）嚴格驗證、OIDC 授權碼登入（主控台整圈）。
@@ -99,7 +99,13 @@
 - [ ] LoggingPlatform 小缺口：Web `/health`、app.css 版本指紋。
 
 ## 影像看片 / Viewer.Server
-- [ ] 客戶端側改走 app-server API（登入/查詢）；DicomServer 走 WADO 拆兩後端。
+### ViewerWebApi 架構定案（2026-08-17）
+目標：**看片端只跟 ViewerWebApi ＋ HD.DicomWeb 說話，不再直連 DB**；舊 `DownloadHost`（DICOMServer）退場。
+部署走 **hdctl**（同 .191/.199），**先獨立成自己一個元件 `viewerapi`**，日後要整併再說。
+實查現況：Server 端五個 controller（Auth/Query/KeyImage/Config/QC）已完成；**客戶端只有 1 處走 API、其餘 56 處仍直連 DB**（DicomQuery 26／QualityControl 17／SystemConfig 11／AccessDefinition 2）。詳 [systems/viewer.md](systems/viewer.md)。
+- [x] **看片端診斷包 — 本機版完成（2026-08-17，趕在 8/18 裝機前）**：「匯出診斷包」按鈕（關於視窗）＋事故標記（未處理例外／不正常結束偵測）。**只寫本機檔案、不碰網路、不碰登入流程**，所以不必重跑 2.4.0 的完整驗證。三支共用 log 目錄 ⇒ 自動涵蓋 Executer 紀錄。已重新打包 `2.4.0+20260817-121900+0800`。詳 [backlog.md](backlog.md) REQ-016。
+- [ ] **第一鏟＝診斷包上傳端點（REQ-016 第二階段）＋ hdctl `viewerapi` 元件**。刻意排在 56 處遷移**之前**：它不碰既有查詢、不改 stored proc、失敗只是少一份診斷資料，適合拿來把「進每間醫院＋hdctl 部署更新」這條路走通。打包邏輯已就緒，屆時只是多一個出口。
+- [ ] 客戶端側 56 處改走 API（登入/查詢/設定/QC）；影像改走 DicomWeb WADO-RS。
 - [ ] **看片端安裝與更新統一（Inno Setup）**：設計正本＝`docs/viewer-install-design.md`（2026-08-13 討論中）。過去都用「直接複製過去」佈署→路徑混亂、無安裝紀錄、不能退版。**前置整備已完成並 push**（版本 2.3.0＋build 時間戳、LinkClient 可出 x86、程式對安裝位置零假設、升版不再遺失使用者設定）。**待決定四件事**：退版機制（junction 切換 vs 備份搬回）／self-contained 與否／安裝根目錄（Program Files vs C:\HyperDigital）／包怎麼切。⚠️ 關鍵限制：.NET 使用者設定路徑含「安裝路徑雜湊」，版本化目錄若直接當執行路徑，每次更新都會掉登入帳號與面板狀態且 `Settings.Upgrade()` 救不回——必須有固定不變的 `current` 指標當啟動路徑。
 
 ### 若瑟醫院 陳醫師需求（2026-08-11 記錄，優先於動物總主機；HOSPITAL_CODE 設計已出正本暫停）

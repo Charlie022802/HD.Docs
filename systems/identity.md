@@ -2,7 +2,24 @@
 
 **目標模型**：AuthN 交 Keycloak、AuthZ 查 DB。token 只證明「你是誰」，能做什麼一律回頭查 `HD_USER`/`HD_ROLE.ACCESS`。
 
-**進度**：主控台（.191:5200，2026-08-07）與 **DicomWeb（.199:5080，2026-08-07/08）皆已切完**；dev-token/自鑄 token 全退役。剩 Viewer（隨新版）與 provisioning API（待同事契約）。
+**進度**：主控台（.191:5200，2026-08-07）與 **DicomWeb（.199:5080，2026-08-07/08）皆已切完**；dev-token/自鑄 token 全退役。剩 Viewer（見下）與 provisioning API（待同事契約）。
+
+## Viewer 切 Keycloak（2026-08-17 決策：雙軌，提前實作、不替換）
+
+**背景**：醫院多為封閉網路，連不到外部的 `sso.ltcd.tw` —— 看片端跑在醫師個人電腦、連的是醫院內部主機，
+登入若要繞出去打 Keycloak，封閉網路的醫院會直接登不進去看片。
+
+**方向**：**之後會在各醫院封閉網路內部自建 Keycloak SSO**（尚未架設）。所以：
+
+- 登入這塊**可以提前先做**——寫好 Keycloak 路徑（Authority 指向院內 SSO 位址，由設定決定）。
+- **但不能替換現行方式**。現行＝登入視窗輸入帳密 → 打醫院主機 WebApi `/api/v2.0/user/login` 驗 `HD_USER`
+  → 回 `access`/`userInfo`（`LoginForm.CheckUser` / `WebApiClient.LoginWithCredentialsAsync`）。
+  現場所有醫院現在都靠這條，院內 SSO 架起來以前它必須維持可用、且是預設。
+- 因此是**雙軌**：新的 Keycloak 路徑與既有 WebApi 帳密路徑並存，靠設定切換；院內 SSO 到位的醫院才開。
+- AuthZ 不變：仍是 Keycloak 只證明身分、權限回頭查 `HD_USER`/`HD_ROLE.ACCESS`。
+
+（同一個封閉網路根因也卡住看片端授權簽發 REQ-015、以及「醫院端裝唯讀主控台」的規劃；院內 SSO 一旦落地，
+後者的 OIDC 登入問題會一併解掉。）
 
 **帳密路（2026-08-09 打通）**：`hdtest` 現為首個雙邊帳號（Keycloak + `HD_USER` ID=hdtest、ROLES=[1] admin、email=hdtest@hyperdigital.biz 兩邊一致）；password grant → `/me` 200 實證。新人類帳號要走 API 的，照此模式兩邊都建（直到 provisioning API 落地自動雙寫）。
 
