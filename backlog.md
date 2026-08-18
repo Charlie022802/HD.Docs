@@ -267,5 +267,5 @@
 ## 擱置 / 取消
 - （無）
 
-## 動物醫院總主機（2026-08-10 方向宣告，未排程）
-.191 架設完成後複製 VM → 獸醫總主機；全院影像集中匯入；新版 DicomWebViewer 依 HospitalName 控管顯示（舊制一院一 DB → 集中單 DB）。開工前要定的六個設計決策見記憶 project_animal_central_host（院別歸屬正本＝上傳憑證非 InstitutionName、server 端強制過濾、穩定院別代碼、單 DB 取捨、VM 複製 checklist、存量匯入路徑）。
+## 多院區主機（2026-08-10 方向宣告；設計完備待開工，正本 [multi-site-design.md](multi-site-design.md)）
+.191 架設完成後複製 VM → 獸醫總主機；全院影像集中匯入；新版 DicomWebViewer 依 HospitalName 控管顯示（舊制一院一 DB → 集中單 DB）。開工前要定的六個設計決策見記憶 project_animal_central_host（院區歸屬正本＝上傳憑證非 InstitutionName、server 端強制過濾、穩定院區代碼、單 DB 取捨、VM 複製 checklist、存量匯入路徑）。

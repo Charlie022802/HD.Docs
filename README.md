@@ -49,7 +49,7 @@ repo 名稱與目錄名相同，**唯一的例外是 `Database\` 目錄對應的
 | LoggingPlatform（HD.LoggingPlatform）| [systems/logging-platform.md](systems/logging-platform.md) | 生產 .195 |
 | 統一部署框架（hdctl）| [systems/deployment.md](systems/deployment.md) | 階段二完成：.191 pacs/export/adminconsole 全遷入（hdctl 0.2.1）|
 | 多語系（i18n）| [i18n-plan.md](i18n-plan.md) | 已定案規劃（resx+IStringLocalizer），P0 骨架待做 |
-| 動物醫院總主機：院別歸屬 | [hospital-code-design.md](hospital-code-design.md) | 設計中：HOSPITAL_CODE 蓋章＋出口過濾（Proxy 退役後架構）|
+| 多院區主機（院區歸屬） | [multi-site-design.md](multi-site-design.md) | 設計完備待開工：SITE_CODE 進檔蓋章＋出口過濾＋RLS。一台主機承載多院區，涵蓋「多家動物醫院共用總機」與「一家醫院的多分院」兩種形狀 |
 | 媒體匯出／燒錄 重新設計 | [media-export-redesign.md](media-export-redesign.md) | 設計中：新表＋新 proc（UID 三層級選擇、佇列併發、拆開 kiosk/rimage 專屬欄位）|
 
 ## 慣例

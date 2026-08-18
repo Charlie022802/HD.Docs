@@ -2,18 +2,19 @@
 
 可執行的事項，依系統分組。完成就打勾或移到各系統文件的歷史。
 
-## 動物醫院總主機（新主線，2026-08-10 立案；詳記憶 project_animal_central_host）
-**架構重定（2026-08-11 三輪）：Proxy 整個退役**——儀器 --C-STORE--> 直打總機新版 PACS（開 port 對外）；STOW 轉發鏈（StowForwarder）與 UserUUID 歸屬設計一併作廢。WorklistInsert 擱置（同事討論中）。**本輪唯一核心＝HOSPITAL_CODE 設計**。
-已定案：server 端強制過濾必做、安裝檔全新裝（不複製 VM）、單 HDPACS DB+HOSPITAL_CODE+RLS 雙護欄。
-- [ ] **HOSPITAL_CODE 設計（正本＝[hospital-code-design.md](hospital-code-design.md)，2026-08-11 依 HDPACS_20260811 schema 出完整草案：DDL＋兩條進檔路蓋章＋QC 複製繼承＋跨院同 UID 護欄＋三階段施工）**：Proxy 特殊流程 → 新 PACS 對照結論——AE 白名單/CalledAE 驗證/視訊 TS/健檢 AE＝新 PACS 現成（AE_MAIN 登記＋NetworkConfig per-AE：host 綁定、allowCStore/CFind/CMove）；進檔改寫＝proxy 的 DicomInputRuleList **從未實作**（只有 UI+設定），新 PACS 反而有真的（per-AE `dicomImportModified`＋`dicomTagFilter`，DicomStoreProcess 套用）；ServiceManager 重啟＝systemd 取代；物種中翻英（狗→Feline 對調）＝worklist 線，隨 WorklistInsert 案處理。**缺口只剩院別歸屬**：提案＝HOSPITAL 表＋AE_CONFIG jsonb 加 `hospitalCode`（NetworkConfig 加屬性，零 schema 改動）＋DicomStoreProcess 進檔蓋 HOSPITAL_CODE 實體欄（RC_STUDY 為主）＋病患複合身分（HOSPITAL_CODE+PATIENT_ID）＋未歸戶=NULL 收下待認領。對外 port 安全：NAT 下 host 綁定失效，靠 AE+防火牆/VPN，要議。
-- [ ] 設計定案：存量匯入路徑（之後談）。**已定（2026-08-10 二輪）：現場 AE 一律不動（鐵則）→歸屬 key＝CallingAE 尾 6 碼 UserUUID 沿用舊慣例；對照表正本＝總機 DB（UserUUID→HOSPITAL_CODE），初始資料從現有 Proxy 設定檔一次性匯入，新院走管理 UI**。待定小點：未歸戶進檔處理（建議收下＋隔離＋UI 認領）。**worklist 已查明（2026-08-10）**：Proxy WorklistSCP＝純轉發（儀器 C-FIND→依 UserUUID 轉該院 PACS worklist SCP，保留原 CallingAE；proxy 不寫資料）→新制沿用轉發鏈、目標改總機單一 SCP＋總機端依 CallingAE 過濾；**動物醫院寫入鏈定案（2026-08-11 反代設定實證）**：NxVet→`www.horoview.vet/hcs/<院號>/mwl`（horoviewReverseProxy nginx，網際網路曝露、被掃描中）→各院 VM `:6060/Api/v2.0/MwlInsert`（hd-pacs-administration-tool Flask，**零認證+SQL 字串拼接注入洞**）→`CALL insert_worklist`→該院 DB→hd-worklist-server 供 C-FIND。（MSI 檔匯入=另一條平行路，動物醫院主用 MwlInsert。）**院別身分已在 URL 路徑→新制診所端零改動**：反代 `/hcs/<n>/mwl` 全改指總機相容端點＋nginx 注入院別 header＋內部金鑰（順治認證/注入洞）；院別對照雙 key：儀器線=UserUUID、worklist 線=hcs 院號，同表對 HOSPITAL_CODE。VetMwl 佇列僅 /hcs/1 一家特規。**反代 bug：/hcs/62/mwl 指 .62（=hcs/61 主機），62 號單進錯院**→待同事確認修正。另：物種改寫狗→Feline/貓→Canine 對調（正確版被註解），沿用前要確認。
+## 多院區主機（新主線，2026-08-10 立案；正本＝[multi-site-design.md](multi-site-design.md)）
+**一台 PACS／一個 DB 承載多個院區**。兩種形狀共用同一套機制：多家動物醫院共用總機（各自獨立編號、嚴格隔離）、一家醫院的多分院（共用病歷號、可跨院區查）。差別靠 `SITE.PATIENT_ID_SHARED` 設定，不是兩套程式。動物醫院的具體導入見設計文件末的導入案例。
+**架構重定（2026-08-11 三輪）：Proxy 整個退役**——儀器 --C-STORE--> 直打總機新版 PACS（開 port 對外）；STOW 轉發鏈（StowForwarder）與 UserUUID 歸屬設計一併作廢。WorklistInsert 擱置（同事討論中）。**本輪唯一核心＝SITE_CODE 設計**。
+已定案：server 端強制過濾必做、安裝檔全新裝（不複製 VM）、單 HDPACS DB+SITE_CODE+RLS 雙護欄。
+- [ ] **階段一：進檔開始歸戶**（設計已完備，見正本）：重拉 dump 核對四個 RC_STUDY INSERT 點行號 → migration（SITE 表含 CUTOVER_DATE/PATIENT_ID_SHARED ＋ RC_STUDY.SITE_CODE ＋索引）→ 改 `store_dicom`／`insert_dicom_info` 蓋章＋跨院區同 UID 護欄 → 兩處 QC 複製繼承 → NetworkConfig 加 `siteCode` → AE 設定匯入。舊盤點結論保留參考：Proxy 特殊流程 → 新 PACS 對照結論——AE 白名單/CalledAE 驗證/視訊 TS/健檢 AE＝新 PACS 現成（AE_MAIN 登記＋NetworkConfig per-AE：host 綁定、allowCStore/CFind/CMove）；進檔改寫＝proxy 的 DicomInputRuleList **從未實作**（只有 UI+設定），新 PACS 反而有真的（per-AE `dicomImportModified`＋`dicomTagFilter`，DicomStoreProcess 套用）；ServiceManager 重啟＝systemd 取代；物種中翻英（狗→Feline 對調）＝worklist 線，隨 WorklistInsert 案處理。**缺口只剩院區歸屬**：提案＝SITE 表＋AE_CONFIG jsonb 加 `siteCode`（NetworkConfig 加屬性，零 schema 改動）＋DicomStoreProcess 進檔蓋 SITE_CODE 實體欄（RC_STUDY 為主）＋病患複合身分（SITE_CODE+PATIENT_ID）＋未歸戶=NULL 收下待認領。對外 port 安全：NAT 下 host 綁定失效，靠 AE+防火牆/VPN，要議。
+- [ ] 設計定案：存量匯入路徑（之後談）。**已定（2026-08-10 二輪）：現場 AE 一律不動（鐵則）→歸屬 key＝CallingAE 尾 6 碼 UserUUID 沿用舊慣例；對照表正本＝總機 DB（UserUUID→SITE_CODE），初始資料從現有 Proxy 設定檔一次性匯入，新院走管理 UI**。待定小點：未歸戶進檔處理（建議收下＋隔離＋UI 認領）。**worklist 已查明（2026-08-10）**：Proxy WorklistSCP＝純轉發（儀器 C-FIND→依 UserUUID 轉該院 PACS worklist SCP，保留原 CallingAE；proxy 不寫資料）→新制沿用轉發鏈、目標改總機單一 SCP＋總機端依 CallingAE 過濾；**動物醫院寫入鏈定案（2026-08-11 反代設定實證）**：NxVet→`www.horoview.vet/hcs/<院號>/mwl`（horoviewReverseProxy nginx，網際網路曝露、被掃描中）→各院 VM `:6060/Api/v2.0/MwlInsert`（hd-pacs-administration-tool Flask，**零認證+SQL 字串拼接注入洞**）→`CALL insert_worklist`→該院 DB→hd-worklist-server 供 C-FIND。（MSI 檔匯入=另一條平行路，動物醫院主用 MwlInsert。）**院區身分已在 URL 路徑→新制診所端零改動**：反代 `/hcs/<n>/mwl` 全改指總機相容端點＋nginx 注入院區 header＋內部金鑰（順治認證/注入洞）；院區對照雙 key：儀器線=UserUUID、worklist 線=hcs 院號，同表對 SITE_CODE。VetMwl 佇列僅 /hcs/1 一家特規。**反代 bug：/hcs/62/mwl 指 .62（=hcs/61 主機），62 號單進錯院**→待同事確認修正。另：物種改寫狗→Feline/貓→Canine 對調（正確版被註解），沿用前要確認。
 - [x] **DicomWeb HTTPS（2026-08-10 完成，SSO 整圈驗證通過）**：nginx TLS 終結（443）＋自簽憑證（SAN 含 hddicomweb/IP）＋app ForwardedHeaders；Keycloak 加 https redirect URIs。踩掉兩顆 proxy buffer 雷（自家 nginx 的 SaveTokens cookie 502＋sso openresty，見 identity.md 坑⑨，皆已修）。設定=deploy/setup-https.sh＋nginx/hdpacs-tls.conf。後續選項：穩定後關 5080 對外、名稱 hddicomweb 上內部 DNS。
 - [x] **Proxy STOW-RS 轉發模組（2026-08-10 建置完成＋本機 mock 驗證）**：新服務 HD.Animal.Proxy.StowForwarder（HD.Animal `7a2e53e`）——掃 CacheTemp（天然持久佇列）→STOW 上傳總機（X-API-Key＋X-Calling-AE-Title）→成功移 CacheSent（保留期自動清）／壞檔 CacheFailed／網路問題原地退避重試（驗證：斷線不丟、復線自動補送）。unit＋install.sh＋proxyConfig 樣板齊；**預設 Enabled=false**。待真機（.222→.199）試跑：需總機發金鑰（dicomweb.write）＋AE_MAIN 登記＋開啟設定；WebController 設定頁補 StowForwarder 區塊（followup）。
 - [x] **WorklistSCP 轉發器優化（2026-08-10，HD.Animal `bdce2a7`，本機雙情境驗證）**：逐筆串流轉發（不再全收完才回）＋上游失敗/逾時回 ProcessingFailure（原本吞錯回空 Success，儀器分不出「失敗」與「沒單」）＋接上 Worklist.RequestTimeoutInMs（設定/WebController 有欄位但程式沒用）＋物種對照表驅動（行為不變；狗→Feline/貓→Canine 對調仍保留，待確認）。隨下次 .222 部署一起上。
-- [ ] ~~院別歸屬鏈（UserUUID/StowForwarder 版）~~ → **作廢（2026-08-11 Proxy 退役）**；歸屬改為 PACS 進檔蓋章，見上方 HOSPITAL_CODE 設計。舊 Proxy 各院 AE 清單仍是初始登記資料來源（AE→院別 匯入 AE_MAIN）。
-- [ ] 進檔蓋章：HOSPITAL_CODE＋病患複合身分（IssuerOfPatientID 概念；寫 DB 不改原始檔）。
-- [ ] QIDO/WADO 依呼叫者院別強制過濾＋PostgreSQL RLS 護欄。
-- [ ] 新版 DicomWebViewer：院別顯示（順帶 Keycloak＋i18n 一起上）。
+- [ ] ~~院區歸屬鏈（UserUUID/StowForwarder 版）~~ → **作廢（2026-08-11 Proxy 退役）**；歸屬改為 PACS 進檔蓋章，見上方 SITE_CODE 設計。舊 Proxy 各院 AE 清單仍是初始登記資料來源（AE→院區 匯入 AE_MAIN）。
+- [ ] 進檔蓋章：SITE_CODE＋病患複合身分（IssuerOfPatientID 概念；寫 DB 不改原始檔）。
+- [ ] QIDO/WADO 依呼叫者院區過濾＋PostgreSQL RLS 護欄。
+- [ ] 新版 DicomWebViewer：院區顯示（順帶 Keycloak＋i18n 一起上）。
 
 ## 主 PACS（HD.Net10）
 狀態（2026-08-04）：A0/A1/A2/B + REQ-005 已 commit+push（HD.Net10 `eb7f932`）。.191 測試機驗證：A2 媒體 coerce ✅、B 日誌 ClientIp/User ✅。
@@ -108,7 +109,7 @@
 - [ ] 客戶端側 56 處改走 API（登入/查詢/設定/QC）；影像改走 DicomWeb WADO-RS。
 - [ ] **看片端安裝與更新統一（Inno Setup）**：設計正本＝`docs/viewer-install-design.md`（2026-08-13 討論中）。過去都用「直接複製過去」佈署→路徑混亂、無安裝紀錄、不能退版。**前置整備已完成並 push**（版本 2.3.0＋build 時間戳、LinkClient 可出 x86、程式對安裝位置零假設、升版不再遺失使用者設定）。**待決定四件事**：退版機制（junction 切換 vs 備份搬回）／self-contained 與否／安裝根目錄（Program Files vs C:\HyperDigital）／包怎麼切。⚠️ 關鍵限制：.NET 使用者設定路徑含「安裝路徑雜湊」，版本化目錄若直接當執行路徑，每次更新都會掉登入帳號與面板狀態且 `Settings.Upgrade()` 救不回——必須有固定不變的 `current` 指標當啟動路徑。
 
-### 若瑟醫院 陳醫師需求（2026-08-11 記錄，優先於動物總主機；HOSPITAL_CODE 設計已出正本暫停）
+### 若瑟醫院 陳醫師需求（2026-08-11 記錄，優先於多院區主機；SITE_CODE 設計已出正本暫停）
 - [x] (1) **HU 即時量測（2026-08-11 建置完成，`15d9509`，待實機驗收）**：新工具「HU 即時量測」（HU_PROBE）——啟用後滑鼠移動即時在**游標旁**顯示該點 HU/像素值（樣式沿用「像素偵測」標註設定，字型可調大）；MouseLeave 清除、右鍵退回預設工具；工具面板/快捷鍵已註冊（工具列要從設定加入）。順手：ObjectElement 快取 rescale 後 IPixelData（hover 與標註拖曳逐點取值不再每次重建）。追加（`1c2c40b`）：專屬圖示 annotation_hu_probe（十字準星＋HU）＋作用中游標改十字準星（不疊工具圖示，免擋讀值）。追加（`226d7bd`）：單位規則統一＝有明確單位顯示單位（CT=HU），其餘（無 rescale／未宣告／Rescale Type="US" 未指定）一律 px。**HU 量測本體＋圖示＋單位已使用者驗收 OK**。
 - [x] (2) **縮圖列寬度可設定（2026-08-11 完成，`7fbd453`＋`4879fd2`，待實機驗收）**：ViewerLayout.ImagebarWidth（預設 140＝原硬編碼值，per-modality）；設定位置＝**設定→預設格式→「影像列位置」下拉旁的「影像列寬(px)」**（80–1000）；作用於 Left/Right（含 Hidden）停靠，Top/Bottom 高度仍自動。順手整組移除無作用的 Dock Panel Portion UI（原意統一控各面板停靠尺寸、因各面板需求不同棄置；資料模型保留）。
 - [x] (3) **連動冷啟動修正（`15d9509`）＋開發機端到端驗證通過（2026-08-12），現場尚未測**：鏈路=HIS→LinkClientDesktop(gRPC :5002)→Executer(tray)→NamedPipe→Viewer。查出三個問題：①Executer 冷啟動只 Process.Start、**不補送訊息**（調閱內容被丟棄）→已改輪詢 pipe 就緒補送（30s 上限）＋ViewerPath 驗證回明確錯誤；②Viewer 登入視窗顯示中收到 pipe 訊息**直接丟棄**→已改排隊＋前置登入視窗、登入成功補處理；③部署的 Executer appsettings.json 的 ViewerPath 指舊開發機路徑——**使用者確認現場這條設定正常**（現場一直在看片），純粹是這台開發測試機的 appsettings.json 沒跟上 net10 遷移路徑，已修正（機器層級設定，不 push）。2026-08-12 用 `LinkClientDesktop.exe` 在開發機完整跑過一輪（Viewer 未開→送 OPEN_STUDY→Executer 自動叫起→登入視窗跳出→登入成功→pending 訊息 flush→開檢查），log 全程正常，①②修正證實有效。另註：ViewerLinkerService.cs 原為 Big5 已轉 UTF-8；順手修一個測試時發現的登入失敗提示視窗被 TopMost 蓋住點不到的問題（`MessageBox.Show` 補 owner，`da8b6c7`）。**現場那台部署機是否已是含 `15d9509` 的版本、「Viewer 未開時連動不跳登入視窗」這個現場場景是否已解決，還沒有人實測**——Executer 跟 Viewer 兩邊都要更新到含這次修正的版本才會生效。
@@ -127,7 +128,7 @@
 - [x] adminconsole 遷入 hdctl .191（HTTP 200；舊 /opt/hd-admin-console 留作備份，穩定後清）。hdctl 0.2.1：unit 自動塞 CONTENTROOT（共用 CWD 下 appsettings 沒載到的修正）。
 - [ ] 簽章要不要做；`hdctl uninstall` 指令（目前手動移除）；穩定後清 /opt/hd-admin-console 與 service-backup/pre-hdctl。（DicomWeb 定案續留 .199 連 .191 DB，不上 .191；**Export 定案只裝 .199**，.191 試裝品已移除 2026-08-10）
 - [x] **.199 的 DicomWeb＋Export 遷入 hdctl（2026-08-10 完成，四健檢全綠）**：dicomweb 元件=兩 unit（主 5080＋UPS 5081，模組設定由 manifest 接管、舊 drop-in 已清）＋`links: data→元件層`（access.db 等本機檔在 releases 外；NAS 掛載在 service 外不受影響）；export manifest 改雙主機 envFiles。之後更新＝hdpack＋`hdctl install`，install.sh 退役為全新環境用。舊資料夾備份在 service-backup/pre-hdctl。
-- [ ] CacheControl Temp／service-manager History 錨 BaseDirectory 修正已 commit——隨下次 pacs 重打包帶上 .191。
+- [x] CacheControl Temp／service-manager History 錨 BaseDirectory（`85bdb08`）——已隨 pacs 2.0.5～2.0.7 佈到 .191（2026-08-18 確認）。
 - [ ] 階段三：.234 舊換新正式部署。
 
 ## Animal Proxy
