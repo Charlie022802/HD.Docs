@@ -25,7 +25,11 @@
 ## 新提出
 
 ### REQ-003　燒錄功能開成 API（打包 / 查狀態 / 下載）
-- **狀態**：**薄層 API 完成 + .199 生產端到端驗證通過**（2026-08-06）；剩「Export 拆成獨立專案」為後續。
+- **狀態**：**獨立專案完成、對 WebViewer 的整條路已實證**（2026-08-18，`.199:5090`、`0.1.0-alpha.13`）。
+- **2026-08-18 對接 WebViewer**：同事那端是純前端、只有 Keycloak token 沒有金鑰，卡在兩道**各自獨立**的牆——①Export 原本只註冊 API Key，任何 Bearer token 都被拒 ②完全沒有 CORS，瀏覽器連 preflight 都過不了（連 401 都拿不到）。修法：MultiScheme（模式同 DicomWeb）＋CORS（多 expose `Content-Disposition`，否則前端讀不到下載檔名）。端到端驗過：CORS → JWT → `preferred_username` 對 `HD_USER` → `ResolveScopes` 給 scope → 建 job（744 張）→ 歸屬隔離。
+  - **部署踩到兩顆**（已寫進 [systems/deployment.md](systems/deployment.md)「設定要放哪」）：`appsettings.json` 在 hdctl `preserve` 清單裡，**新增的設定區塊不會上機**；而選配認證缺設定時整支 API 每個請求 500（含 `/health`）→ 健檢失敗自動退版。改成條件式註冊＋設定走 `/etc/hd-export/keycloak.env`。
+  - **歸屬看憑證不看人**：`sub` 來自 JWT 是 Keycloak UUID、來自金鑰是金鑰 id，所以同一個人用 token 建的 job 與用金鑰建的互不相通（查別人的回 404）。已寫進 `/scalar`。
+- 剩：進度回寫（見 REQ-018）、人用 Keycloak token 的 `ACCESS.export` 已可用。
 - **端到端驗證**：POST 建立→201；.191 worker 打包→P；GET 查狀態→通；GET 下載→200（合法 DICOM 包）。過程修 2 個 legacy proc bug（`insert_package_job` patient CASE + accession/patientId TRIM，寫進 v2.0.27）+ burnTemp 搬 NAS（`HD_CONFIG` burnTempPath→`/home/HD/data/burnTemp`）。詳記憶 project_req003_export_webapi。
 - **決策**：Export 定案**獨立成一支 API**（不併 DicomWeb，薄殼端點目前在 DicomWeb 待拆）；auth 先用現有 API Key、之後隨 Keycloak 換。進檔字串正規化另立 REQ-009。
 - **⚠️ 參數盤點：`BURN_INFO` 有一半欄位 net10 worker 根本不讀（2026-08-17 查證）**。查了三層才確定——API 的 `CreatePackageRequest` → proc `export.insert_package_job` 寫進 `BURN_INFO` → `get_job_package_info()`（[HDPACS_20260811.sql:2498](../Database/HDPACS_20260811.sql)）把 **`burn_info` 整包**丟給 worker → 但 worker 反序列化用的 `HD.Net10/HD.MediaPackage/Class/PackageJob.cs` 只有部分屬性，其餘**靜靜被丟掉**：
@@ -52,6 +56,24 @@
   - 下載 = 把 worker 產出的檔案串流回去。
 - **放哪裡（待決）**：DicomWeb 已有認證/授權/部署/稽核基礎，適合擺這組 API；但打包執行體在傳統 PACS 端（同一套 DB 可橋接）。需規劃：API 端 vs worker 端的分工、下載檔案路徑的存取（.199 DicomWeb 取 .234 產出的檔）。
 - **待辦**：見 [todo.md](todo.md)（REQ-003 規劃）。
+
+### REQ-018　打包進度：worker 中途不回寫，前端只看得到 claimed 卡著
+- **狀態**：提出（2026-08-18，Export 對接 WebViewer 時發現）
+- **系統**：主 PACS（HD.Net10）hd-media-package ＋ Export API
+- **現象**：`PACKAGE_JOB.PROGRESS` 永遠是 0，狀態從 `claimed` 直接跳 `ready`。744 張的包要跑一陣子，前端這段期間沒有任何可顯示的進度。`processing` 這個狀態實務上看不到。
+- **管線已經全通，缺的只有呼叫點**：
+  | 組件 | 狀態 |
+  |---|---|
+  | proc `export.update_package_job` | 已支援 `progress`（`db_update_v2.0.28.sql:496`） |
+  | C# `UpdateJobStatus` | 已有 `int? progress` 參數並已傳入 |
+  | `"p" → processing` 映射 | 已存在（`PackageService.cs:737`） |
+  | 迴圈裡的呼叫 | **零**——只在完成（`P`）／失敗（`E`）時呼叫 |
+- **實作位置**：`PackageService.cs` 兩個迴圈，JPEG 在 L199、DICOM 在 L348，結構都是 `studyInfoList` → `fileList`。約 15–25 行。
+- **三個必須先決定的點**（不是純粹加行數）：
+  1. **節流是必要的不是優化**：`UpdateJobStatus` 每次都 `new PostgresConnection`，744 張逐張回寫＝744 次連線。建議每 5% 一次。
+  2. **兩個分支要合併計算**：`contents: ["dicom","jpeg"]` 時總工作量是兩倍檔案數，各自計數會讓進度條跑兩次 0→100。
+  3. **回寫必須 best-effort**：目前 `UpdateJobStatus` 在外層 `catch` 的保護範圍內，**一次暫時性 DB 錯誤會讓整個打包被標成 failed**。為了顯示進度而讓打包更脆弱不划算，那幾個呼叫要自己吞例外。
+- **為什麼先不做**：等前端真的反映「使用者不知道要等多久」再做。屆時才知道要的是百分比、還是「已完成 N / 共 M」（後者要多回一個欄位）。現在做等於猜規格。
 
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
 - **狀態**：提出（2026-08-03，觀察）
