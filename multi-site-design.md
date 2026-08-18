@@ -2,7 +2,7 @@
 
 狀態:**設計已完備,待開工**(2026-08-18)。開工前的設計決策全部定案:歸屬正本、server 端強制過濾、穩定代碼當 key、病歷號作用域、整個院區匯出／退場／誤刪防護、存量資料路徑。原「複製 .191 VM」已作廢,改以安裝檔全新裝。
 
-Schema 基準:`Database/HDPACS_20260811.sql`(自 .191 拉,已核對 `store_dicom`/`get_ae_config`/`RC_STUDY` 與 20260720 版一致)。**注意:該 dump 之後 DB 已推進到 v2.0.30(export 四張表等),真正要寫 migration 前請重拉一份 dump 再核對這四個 INSERT 點的行號。**
+Schema 基準:**`Database/HDPACS_20260818.sql`**(2026-08-18 自 .191 重拉,含 v2.0.30;schema-only 無資料段)。四個 `RC_STUDY` INSERT 點的行號已重新核對,且確認全庫**只有這四處**。
 
 ## 這份設計在解什麼
 
@@ -79,12 +79,27 @@ per-AE 設定正本=`AE_CONFIG`(SECTION='NETWORK', KEY='DICOM')的 VALUE jsonb �
 
 **RC_STUDY 共四個 INSERT 點(20260811 版行號)**:
 
+行號依 `HDPACS_20260818.sql`。**全庫只有這四處 INSERT `RC_STUDY`**(已用 script 掃過確認)。
+
 | 位置 | 路徑 | 處理 |
 |---|---|---|
-| `store_dicom`(L20956,INSERT L21147) | C-STORE(DicomStoreProcess.InsertToDatabase) | 讀 config 蓋章+護欄 |
-| `insert_dicom_info`(L11744,INSERT L11943) | DicomWeb STOW(HdPacs Infrastructure) | 同上(它同樣解析 calling_ae_ref) |
-| `study_split`(L22187,INSERT L22233) | QC 拆單(SELECT 複製自來源 study) | 複製欄位清單**加 "SITE_CODE"**(繼承來源) |
-| QC Split(study_qc 類,INSERT L27818) | 同上 | 同上 |
+| `public.store_dicom`(宣告 L21512,INSERT L21703) | C-STORE(DicomStoreProcess.InsertToDatabase) | 讀 config 蓋章+護欄 |
+| `public.insert_dicom_info`(宣告 L12300,INSERT L12499) | DicomWeb STOW(HdPacs Infrastructure) | 同上(它同樣解析 calling_ae_ref) |
+| `public.study_split`(宣告 L22743,INSERT L22789) | QC 拆單(SELECT 複製自來源 study) | 複製欄位清單**加 "SITE_CODE"**(繼承來源) |
+| **`viewer_station.qc`**(宣告 L28110,INSERT L28374) | QC Split | 同上 |
+
+(第四支先前記為「`study_qc` 類」,實際函式名是 `viewer_station.qc`,2026-08-18 更正。)
+
+**掛設定的鉤子已存在,確認過不必改 schema**:兩條進檔路本來就在讀
+`get_ae_config('NETWORK','DICOM', {aeRef: calling_ae_ref})`——`store_dicom` 在 L21623、
+`insert_dicom_info` 在 L12417,兩邊都已解析出 `calling_ae_ref`。所以 `siteCode` 加進那個
+jsonb 就會被兩邊自動拿到。
+
+> **為什麼不直接用現成的 `RC_STUDY.INSTITUTION_NAME`?** 那一欄確實已經存在、也已經在填
+> (store_dicom L21706 從 DICOM 表頭的 `InstitutionName` 帶入),但它是**儀器自己報的字串**:
+> 各院區設定不一致、可能空白、可能被改機打錯、也不是穩定代碼。歸屬必須是**我們這邊認定的**
+> (由 AE 設定決定),而不是相信來源填了什麼。兩者並存:`INSTITUTION_NAME` 保留原樣當參考,
+> `SITE_CODE` 才是權威。
 
 蓋章改法(以 store_dicom 為例,insert_dicom_info 同構):
 
@@ -98,7 +113,10 @@ existing_hospital_code text;
 
 -- Insert Study 分支:欄位清單加 "SITE_CODE"、VALUES 加 hospital_code
 
--- Study 已存在分支(進 update 前,無論 allow_duplicate):
+-- Study 已存在分支:護欄要放在 ELSE 一進去、**allow_duplicate 判斷之前**。
+-- 原因(2026-08-18 讀 store_dicom L21717-21744 確認):allow_duplicate=false 只是
+-- 「跳過更新 study」,後面的 series/object 仍然會用同一個 study_ref 掛上去——
+-- 也就是 B 院區的影像會靜靜掛進 A 院區的 study。所以不能只在 update 分支裡擋。
 IF hospital_code IS NOT NULL THEN
     SELECT "SITE_CODE" INTO existing_hospital_code
     FROM "RC_STUDY" WHERE "STUDY_REF" = study_ref;
@@ -196,7 +214,9 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 
 ## 施工順序
 
-1. **階段一(進檔就開始歸戶)**:migration(SITE 含 CUTOVER_DATE + RC_STUDY 欄 + 索引)→ 改 `store_dicom`+`insert_dicom_info`+兩處 QC 複製 → NetworkConfig 加屬性 → AE 設定匯入。
+1. **階段一(進檔就開始歸戶)**——拆成兩步,承載結構先獨立驗證:
+   - **1a ✅ 已完成(2026-08-18,`db_update_v2.0.31.sql`)**:SITE 表(含 CUTOVER_DATE／PATIENT_ID_SHARED)+ RC_STUDY.SITE_CODE + 索引 + 外鍵。純新增、零行為變更。已對 .191 以 BEGIN…ROLLBACK 連續套用兩次驗過(冪等 + 回滾歸零),**尚未正式套用**。
+   - **1b 待做**:改 `store_dicom`／`insert_dicom_info` 蓋章 + 跨院區同 UID 護欄 → `study_split`／`viewer_station.qc` 複製欄位加 SITE_CODE → `NetworkConfig` 加 `siteCode` → AE 設定匯入。**開工前要先決定「AE 設了不存在的院區代碼」怎麼處理**(見待議)。
 2. **階段二**:出口過濾(C-FIND/C-MOVE/QIDO/WADO/Viewer)+RLS + **整院匯出／退場工具**(RLS 同時是誤刪的第二道,所以與出口過濾同階段做)。
 3. **階段三**:管理 UI(SITE/掛院區/認領/分界日/退場流程)。
 
@@ -207,6 +227,7 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 - **對外 port 網路安全**:DICOM 無認證,防線=AE 白名單+來源 IP 綁定;院區在 NAT/浮動 IP 下 host 只能 0.0.0.0 → 需防火牆限源/VPN/固定出口 IP,與網路規劃一起定。**這條在動物醫院場景特別關鍵**(儀器在各家診所、走網際網路);分院多半在同一內網,壓力小很多。
 - 病患複合顯示:`PATIENT_ID_SHARED=false` 時,Viewer 顯示 PatientID 要不要帶院區前綴(同號不同人的視覺區辨),UI 階段再議。
 - 混合部署(同一台同時有獨立編號與共用編號的院區群)需要 `SITE.GROUP_CODE` 之類的群組概念,目前無此需求,先不做。
+- **AE 設定了不存在的院區代碼怎麼辦?**(1b 開工前要定)`SITE_CODE` 有外鍵,所以進檔時只能給已登記的代碼或 NULL。「AE 沒設 siteCode」是明確的未歸戶(原則 4:收下、留 NULL、UI 認領);但「AE 設了 `TAIPEI2` 而表裡只有 `TAIPEI`」是打字錯誤,兩種處置代價不同:拒收會讓那台儀器整個停擺;當未歸戶收下則會靜靜累積待認領資料。**傾向收下 + `RAISE WARNING`**(影像不該因設定打錯而進不來,而 warning 會進集中日誌),待確認。
 - Worklist 線(擱置中)回來後:HDM 表是否也加 SITE_CODE、物種中翻英(狗→Feline 對調)一併處理。
 
 ---
