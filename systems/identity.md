@@ -2,7 +2,9 @@
 
 **目標模型**：AuthN 交 Keycloak、AuthZ 查 DB。token 只證明「你是誰」，能做什麼一律回頭查 `HD_USER`/`HD_ROLE.ACCESS`。
 
-**進度**：主控台（.191:5200，2026-08-07）與 **DicomWeb（.199:5080，2026-08-07/08）皆已切完**；dev-token/自鑄 token 全退役。剩 Viewer（見下）與 provisioning API（待同事契約）。
+**進度**：主控台（.191:5200，2026-08-07）、**DicomWeb（.199:5080，2026-08-07/08）**、**Export API（.199:5090，2026-08-18，`0.1.0-alpha.11`）** 皆已切完；dev-token/自鑄 token 全退役。剩 Viewer（見下）與 provisioning API（待同事契約）。
+
+> **Export 的 MultiScheme 是照 DicomWeb 抄的**，三處值得注意：①`Keycloak.Authority` 走 `/etc/hd-export/keycloak.env` 而非 appsettings（各院之後自建 Keycloak，理由見 [deployment.md](deployment.md)「設定要放哪」）②沒設 Authority 就只收 API Key、不註冊 JWT scheme，服務照常運作 ③呼叫端是純前端時**還需要 CORS**，且要 expose `Content-Disposition`，否則前端讀不到下載檔名。
 
 ## Viewer 切 Keycloak（2026-08-17 決策：雙軌，提前實作、不替換）
 

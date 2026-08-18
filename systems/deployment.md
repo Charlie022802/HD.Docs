@@ -27,6 +27,51 @@ unit 自動塞 `DOTNET_CONTENTROOT`/`ASPNETCORE_CONTENTROOT` 指服務程式目�
 - **release 協調包** `release.json`：多元件一起上（如共用 migration），全驗才動、依序 update、可整批 rollback。
 - **單一 HDPACS DB**：安裝只問一次 → 寫 `hd_conf.json`（PACS 讀）+ `/etc/hd/db.env`（DicomWeb 完整連線）。日誌 `/etc/hd/logplatform.env` 全元件共用。
 
+## 設定要放哪：appsettings 還是 env 檔（2026-08-18 定案，踩過才寫下來）
+
+**規範：機器／場域相關的設定一律走 `/etc/<component>/*.env`，`appsettings.json` 只放「所有環境都一樣的預設」。**
+
+### 為什麼不能把新設定塞進 appsettings
+
+manifest 的 `preserve` 清單保留機器上那份 `appsettings.json`（用意是更新不覆蓋現場設定），
+副作用是**新版新增的設定區塊永遠不會自動上機**——包裡有、機器上沒有，而且安裝過程完全不會提示。
+
+這不是假設。2026-08-18 Export API 要接 Keycloak，把 `Keycloak` 區塊加進 `appsettings.json`，
+部署後 **hdctl 健檢 500、自動退版**：機器上用的還是舊那份，`Authority` 因此是空字串，
+`MetadataAddress` 變成 `"/.well-known/openid-configuration"`（不是合法 URL），JwtBearer 首次解析
+options 就丟例外；而該 scheme 是預設 scheme、每個請求都會走認證分派，於是**連 `/health` 都 500**。
+
+### 怎麼判斷該放哪
+
+| 問題 | 放 env 檔 | 放 appsettings |
+|---|---|---|
+| 換一台機器／換一家醫院會不會不一樣？ | 會 | 不會 |
+| 是機密嗎？ | 是 | 絕不 |
+| 例子 | DB 連線字串、LoggingPlatform 位址與金鑰、Keycloak `Authority` | 日誌等級、`AllowedHosts`、各種行為預設 |
+
+`Keycloak.Authority` 屬於前者常被誤判：它看起來像固定值，但**各醫院之後會自建院內 Keycloak**，
+封閉網路連不到 `sso.ltcd.tw`。同理，凡是「現在只有一個值，是因為現在只有一套環境」的設定都該進 env。
+
+既有慣例本來就是這樣——`Database.ConnectionString` 與 `LoggingPlatform.IngestUrl` 在
+`appsettings.json` 裡都是**空字串**，實際值由 `/etc/hd-export/*.env` 提供。新設定照抄這個形狀即可。
+
+### 做法
+
+1. `appsettings.json` 留空值 + `_comment` 說明由哪個 env 檔提供。
+2. manifest 的 `envFiles` 加上該檔路徑（**這個會隨包上機**，hdctl 會據此重寫 unit）。
+3. 主機上建檔：`/etc/<component>/<name>.env`，內容用 .NET 的環境變數格式（區段用雙底線，
+   例如 `Keycloak__Authority=…`），權限 `600`（含機密）或 `640`，然後 **`restorecon`** 標成 `etc_t`。
+
+### 程式碼要能容忍設定不存在
+
+**選配功能沒設定時，服務必須照常啟動，不能整支死掉。** 上面那個案例的根因有一半在這裡——
+少一個選配的認證方式，結果是整支 API 每個請求都 500。正確做法是判斷後跳過註冊，並記一筆
+`WARNING` 說明哪個功能沒啟用（集中日誌看得到）。
+
+這一點對 hdctl 尤其重要：健檢失敗會**自動退版**，所以「設定沒上機」會表現成「新版裝不上去」，
+而真正的原因（少一個設定）完全看不出來。反過來說，能容忍缺設定的服務，裝上去之後
+**「裝成功」不等於「功能可用」**——部署後要另外確認那行 WARNING 有沒有出現。
+
 ## 現有部署現況（統一前）
 - **DicomWeb**：自有 `deploy/install.sh`（.199），**不寫版本檔**（靠 /health）。
 - **傳統 PACS**：舊 `D:\ProgramPublish` 有 install/update/rollback（/home/HD/service + hd_conf.json 集中設定、寫 version.txt、13 服務含舊 web 元件、root 執行）。新版要一般化進 hdctl。
@@ -36,6 +81,7 @@ unit 自動塞 `DOTNET_CONTENTROOT`/`ASPNETCORE_CONTENTROOT` 指服務程式目�
 - dotnet 放 `/opt`（避 init_t 執行 /home 的 user_home_t 標籤被擋）。
 - **symlink 藍綠切換的雷（2026-08-10 .191 實案）**：init_t **讀 user_home_t 的 lnk_file 會被擋**（目錄沒事）——unit 的 WorkingDirectory 經過 `current` symlink 時 CHDIR EACCES、服務 crash-loop。解法：symlink 標 `usr_t`；且 **flip 產新 link 標籤會重置，每次 flip 後都要重標**（hdctl `label_current` 已內建 semanage fcontext + chcon -h）。
 - **env 一律 `/etc/hd/*`（etc_t、600、restorecon）**；放 /home 會 AVC denied 且 `EnvironmentFile=-` 靜默略過。
+  哪些設定該放 env、哪些留 appsettings，見上方「設定要放哪」。
 - 解壓新 release 後 `restorecon -R`；低埠綁定用 setcap；atomic tmp+rename 注意標籤繼承。
 - hdctl 產 unit 必帶 `EnvironmentFile=/etc/hd/*.env`，否則日誌 no-op。
 
