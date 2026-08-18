@@ -75,6 +75,43 @@ per-AE 設定正本=`AE_CONFIG`(SECTION='NETWORK', KEY='DICOM')的 VALUE jsonb �
 - DB:`store_dicom`/`insert_dicom_info` 讀 `config ->> 'siteCode'`。
 - C#:`NetworkConfig`(HD.Net10/HD/Configuration/NetworkConfig.cs)加 `public string siteCode { get; set; }`——進檔蓋章用不到(全在 DB),但出口過濾(C-FIND/C-MOVE 查詢組建)會用。
 
+## 院區的生命週期:只停用、不刪除(2026-08-18 定案)
+
+**`SITE` 沒有「刪除」這個動作。** 生命週期是 建立 → 停用 → (完成退場三段式後才談清理),
+`ENABLE` 就是為此存在的。
+
+DB 已經擋掉一半:`RC_STUDY.SITE_CODE` 的外鍵是 NO ACTION,所以**只要該院區有任何一筆
+study,刪那列就會外鍵違反**。漏掉的縫是「院區還沒有 study、但已被 AE 設定引用」——
+`siteCode` 塞在 `AE_CONFIG` 的 jsonb 裡,**沒有外鍵保護**,刪掉之後那台儀器下次送片就進不來。
+
+**兩條前端規範是讓這個縫收斂的前提**,不是可有可無的 UI 細節:
+
+1. **管理 UI 不提供刪除院區,只提供停用。** 真要刪除也只在退場三段式全部完成之後。
+2. **AE 設定的 `siteCode` 用下拉選單(取自 `SITE`),不是自由輸入。** 打字錯誤這個來源直接消失。
+
+做到這兩條之後,「AE 指到不存在的院區代碼」就只剩兩條路徑:從舊系統一次性匯入時來源
+沒對上、以及有人直接下 SQL 改。都是低頻且屬於我們自己造成的。
+
+### 進檔時的四種情況
+
+| AE 設定 | `SITE` 狀態 | 處置 |
+|---|---|---|
+| 沒有 `siteCode` | — | 收下,`SITE_CODE = NULL`(未歸戶,管理 UI 認領) |
+| 有,`ENABLE = true` | 正常 | 蓋章 |
+| 有,`ENABLE = false` | **退場中** | **拒收**(`RAISE EXCEPTION`,訊息要指出是退場中) |
+| 有,但 `SITE` 查無此碼 | 設定錯誤 | 收下 + `RAISE WARNING`(進集中日誌) |
+
+**`ENABLE = false` 必須拒收,這是該旗標存在的唯一理由。** 退場三段式的第一段就是
+`ENABLE = false`「先讓進檔停止,否則邊刪邊進」——若停用中仍照收,那一段等於沒有作用。
+
+更嚴重的是:如果停用中收下但當成未歸戶(`SITE_CODE = NULL`),那些資料**不會被
+`delete_site_studies` 掃到**(它按院區刪),退場完成後會留下一批無主的該院影像——
+正是本文件「對帳必須是雙向的」那一節說的第二種脫節。
+
+相對地,「代碼不存在」選擇收下而非拒收,理由是代價不對稱:影像是不可重來的臨床資料,
+設定打錯事後可以修;為了一個設定錯誤讓儀器停止送片,代價落在錯的地方。而且它與定案
+原則 4(未歸戶照收)方向一致,兩種「沒歸到戶」的情況處置相同,語意也單純。
+
 ## 進檔蓋章(兩條進檔路 + QC 複製)
 
 **RC_STUDY 共四個 INSERT 點(20260811 版行號)**:
@@ -209,14 +246,23 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 
 ## 初始資料與管理
 
-- 舊 Proxy 設定檔的各院 AE 清單=現成「AE→院區」登記來源:一次性匯入 AE_MAIN+AE_CONFIG(NETWORK/DICOM 含 siteCode)。
-- 管理 UI(後續):SITE CRUD、AE 掛院區欄位、未歸戶清單+認領(認領=UPDATE 歷史 RC_STUDY.SITE_CODE)。
+- 舊系統的各院 AE 清單=現成「AE→院區」登記來源:一次性匯入 AE_MAIN+AE_CONFIG(NETWORK/DICOM 含 siteCode)。
+  **這是「代碼不存在」最可能的來源**——來源資料只要有一筆對不上,那家的所有 AE 都會落入該情況,
+  所以匯入前應先比對「來源用到的代碼」與 `SITE` 表,差集要先補齊或明確排除。
+- 管理 UI(後續)。注意是 **CRU 不含 D**——院區只停用不刪除,理由見「院區的生命週期」:
+  | 功能 | 要點 |
+  |---|---|
+  | 院區維護 | 建立／改名／**停用**(不提供刪除) |
+  | AE 掛院區 | `siteCode` **下拉選單取自 `SITE`**,不可自由輸入 |
+  | 未歸戶清單 | 列出 `SITE_CODE IS NULL` 的 study + 認領(認領=UPDATE 歷史 `RC_STUDY.SITE_CODE`) |
+  | 分界日／病歷號作用域 | `CUTOVER_DATE`、`PATIENT_ID_SHARED` 的維護 |
+  | 退場 | 三段式的操作介面(停用→匯出驗證→刪除),見「整院匯出／單院退場」 |
 
 ## 施工順序
 
 1. **階段一(進檔就開始歸戶)**——拆成兩步,承載結構先獨立驗證:
    - **1a ✅ 已完成(2026-08-18,`db_update_v2.0.31.sql`)**:SITE 表(含 CUTOVER_DATE／PATIENT_ID_SHARED)+ RC_STUDY.SITE_CODE + 索引 + 外鍵。純新增、零行為變更。已對 .191 以 BEGIN…ROLLBACK 連續套用兩次驗過(冪等 + 回滾歸零),**尚未正式套用**。
-   - **1b 待做**:改 `store_dicom`／`insert_dicom_info` 蓋章 + 跨院區同 UID 護欄 → `study_split`／`viewer_station.qc` 複製欄位加 SITE_CODE → `NetworkConfig` 加 `siteCode` → AE 設定匯入。**開工前要先決定「AE 設了不存在的院區代碼」怎麼處理**(見待議)。
+   - **1b 待做**:改 `store_dicom`／`insert_dicom_info` 蓋章 + 跨院區同 UID 護欄 → `study_split`／`viewer_station.qc` 複製欄位加 SITE_CODE → `NetworkConfig` 加 `siteCode` → AE 設定匯入。進檔時的四種情況(含停用中院區拒收)見「院區的生命週期」一節,已定案。
 2. **階段二**:出口過濾(C-FIND/C-MOVE/QIDO/WADO/Viewer)+RLS + **整院匯出／退場工具**(RLS 同時是誤刪的第二道,所以與出口過濾同階段做)。
 3. **階段三**:管理 UI(SITE/掛院區/認領/分界日/退場流程)。
 
@@ -227,7 +273,6 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 - **對外 port 網路安全**:DICOM 無認證,防線=AE 白名單+來源 IP 綁定;院區在 NAT/浮動 IP 下 host 只能 0.0.0.0 → 需防火牆限源/VPN/固定出口 IP,與網路規劃一起定。**這條在動物醫院場景特別關鍵**(儀器在各家診所、走網際網路);分院多半在同一內網,壓力小很多。
 - 病患複合顯示:`PATIENT_ID_SHARED=false` 時,Viewer 顯示 PatientID 要不要帶院區前綴(同號不同人的視覺區辨),UI 階段再議。
 - 混合部署(同一台同時有獨立編號與共用編號的院區群)需要 `SITE.GROUP_CODE` 之類的群組概念,目前無此需求,先不做。
-- **AE 設定了不存在的院區代碼怎麼辦?**(1b 開工前要定)`SITE_CODE` 有外鍵,所以進檔時只能給已登記的代碼或 NULL。「AE 沒設 siteCode」是明確的未歸戶(原則 4:收下、留 NULL、UI 認領);但「AE 設了 `TAIPEI2` 而表裡只有 `TAIPEI`」是打字錯誤,兩種處置代價不同:拒收會讓那台儀器整個停擺;當未歸戶收下則會靜靜累積待認領資料。**傾向收下 + `RAISE WARNING`**(影像不該因設定打錯而進不來,而 warning 會進集中日誌),待確認。
 - Worklist 線(擱置中)回來後:HDM 表是否也加 SITE_CODE、物種中翻英(狗→Feline 對調)一併處理。
 
 ---
