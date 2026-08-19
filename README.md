@@ -29,6 +29,10 @@
 | `github` | `https://github.com/Charlie022802/<repo>.git` | 鏡像，要推得明寫 `git push github master` |
 
 repo 名稱與目錄名相同，**唯一的例外是 `Database\` 目錄對應的 repo 叫 `HDPACS-DB`**。
+
+`hd-web-server\` 是**第 12 個目錄但不是我們的 repo** —— 同事維護的 Node 服務，
+2026-08-19 為排障而放進來的工作副本（下載的壓縮檔，不含 `.git`）。
+只讀不改，見 [systems/hd-web-server.md](systems/hd-web-server.md)。
 `docs\`（本目錄）也是其中之一，repo 名 `HD.Docs` —— **改完文件要 commit + push，否則只留在這台開發機**。
 
 搬遷時的坑：`git remote rename origin github` 會連 `branch.master.remote` 一起改寫，
@@ -45,6 +49,7 @@ repo 名稱與目錄名相同，**唯一的例外是 `Database\` 目錄對應的
 | 身分/認證（Keycloak SSO + API Key）| [systems/identity.md](systems/identity.md) | 主控台+DicomWeb 已切 Keycloak；OIDC 八坑清單在此 |
 | Animal Proxy（HD.Animal）| [systems/animal-proxy.md](systems/animal-proxy.md) | 生產 .222；WebController 已上 |
 | 影像看片（HD.DicomImageViewer / .Server）| [systems/viewer.md](systems/viewer.md) | 桌面看片 + Server 化進行中 |
+| **hd-web-server**（同事維護，非我們的 repo）| [systems/hd-web-server.md](systems/hd-web-server.md) | **看片端影像的實際來源**（`/api/v2.0/wado-uri`）。只讀不改；排障入口是 journald 不是 log 檔 |
 | 共用日誌套件（HD.Shared.Logging）| [systems/shared-logging.md](systems/shared-logging.md) | 套件完成；各產品接入中 |
 | LoggingPlatform（HD.LoggingPlatform）| [systems/logging-platform.md](systems/logging-platform.md) | 生產 .195 |
 | 統一部署框架（hdctl）| [systems/deployment.md](systems/deployment.md) | 階段二完成：.191 pacs/export/adminconsole 全遷入（hdctl 0.2.1）|

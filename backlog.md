@@ -80,6 +80,18 @@
   - 修法用 `finally` 而不是把呼叫搬到 `continue` 前面：後者只補這一條路徑，日後再加一條 `continue` 又會漏。
   - **驗證腳本已補時序斷言**（首個進度不得晚於全程 35%、進度點不得少於 8），否則修好後再退化也不會有人發現。
 
+### REQ-019　hd-web-server：wado-uri 的 404 不記原因，一筆 MA study 全數調不出來（根因未定案）
+- **狀態**：**擱置待重現**（2026-08-19 症狀已消失，兩個變因無法分離）
+- **系統**：`hd-web-server`（**同事維護的 Node 服務，不是我們的 repo**）。完整記錄在 [systems/hd-web-server.md](systems/hd-web-server.md)
+- **現象**：某病人一筆 MG/MA study（4 張）從 `10.10.60.66` 抓，DICOM 與 JPEG 兩種 contentType 全數 404（43 次請求 0 成功）；同一時間同一台看片端抓另一筆 CT 完全正常。該日 `.66` 共 3693 次 200／43 次 404，涵蓋 59 筆 study，只有這一筆壞。
+- **為什麼值得記一筆需求**：查了三小時，其中大部分時間耗在「404 沒有任何原因」。`wado-uri.ts` 只有 123 行卻有三處 `rep.notFound()`，語意完全不同（守門失敗／檔案不存在／PDF 抽取失敗），全部回同一個狀態碼、只有 PDF 那處有 `log.warn`。
+- **要請同事做的（成本極低、效益最大）**：第 32 行加印 `qidoResult.length`，第 58 行加印 `file` 路徑。有這兩行，同樣的問題五分鐘定位。
+- **順帶查出的一個真地雷**：`filterCheck` 的判定是 `filtered.length === 1`，而內部使用者的 filter 是空物件（全部放行），所以退化成「`qido_query` 必須回剛好一列」。**0 列會擋，>= 2 列也會擋** —— 一旦某張影像出現重複的 SOP Instance UID 就永久下載不了，而主 PACS 的 `store_dicom` 有 `allow_duplicate` 設定。兩者直接矛盾。
+- **另外兩件**：DB 密碼（含 `user: postgres`）寫死在 `src/utils/utils.initial.ts`，不在 `config.json`；`.66` 的 systemd unit 是 `disabled`，開機不會自動啟動。
+- **已排除的（都有實證）**：看片端無關（伺服器主動回 404）／資料新舊無關（同日產生的另兩筆都 200）／非 nearline 歸檔（`RC_LOCATION` 齊全、`IS_CACHED=true`）／非身分解析錯誤（解析出的就是登入者本人）／非應用層快取（該路徑零快取）／非連線凍結快照（無 `BEGIN`、`pg_stat_activity` 無 `idle in transaction`）。
+- **為什麼沒能定案**：使用者重新匯入 + 重啟服務之後恢復。而「重新匯入之後、重啟之前」只送出過一個請求，看片端 1 秒後被關閉，**沒有任何回應被記錄** —— 兩個變因分不開。
+- **下次發生時的取樣順序**（寫在系統文件裡）：① 先備份 `/home/HD/logs/web-server.log`（重啟會清掉）② 在 404 當下跑診斷 SQL 看 `qido_query` 回幾列 ③ 取樣完才重啟。
+
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
 - **狀態**：提出（2026-08-03，觀察）
 - **系統**：DicomWeb（HD.Pacs.DicomWeb）

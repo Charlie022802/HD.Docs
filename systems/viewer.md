@@ -10,6 +10,21 @@
 - **MPR 3D**：2D + 3D 皆完成；3D 走 OpenTK.GLControl（GLSL raymarch）。
 - 狀態列：ZoomFactor/PixelValue 等移到 StudyControl 底部。
 
+## 影像實際是誰送的（現行架構，容易誤解）
+
+看片端的資料流目前是**分開的兩條**，`localconfig.json` 裡是兩個獨立設定，可以指向不同主機：
+
+| 用途 | 設定 | 對象 |
+|---|---|---|
+| 查詢清單、study tree、DICOM tag | `Database.Host` | PostgreSQL |
+| **影像檔／JPEG／MP4** | `DownloadHost` | **`hd-web-server`** 的 `/api/v2.0/wado-uri` |
+
+`hd-web-server` 是**同事維護的 Node 服務**，不是我們的 repo。
+所以「清單查得到、影像調不出來」是正常的失敗形狀，兩邊要分開查 ——
+排障方式、已知地雷、事件記錄見 [hd-web-server.md](hd-web-server.md)。
+
+（下面的 Server 化目標架構會讓這條路改走 HD.DicomWeb，屆時 `DownloadHost` 退場。）
+
 ## Viewer Server / ViewerWebApi（進行中）
 新專案 `HD.DicomImageViewer.Server`（ASP.NET Core net10，Blazor Server 管理 UI + Web API），部署為 Linux systemd。目的：把客戶端「直連 Postgres」收到伺服器後面（**DB 密碼只留伺服器**）+ 管理後台。
 
