@@ -290,8 +290,36 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 ## 施工順序
 
 1. **階段一(進檔就開始歸戶)**——拆成兩步,承載結構先獨立驗證:
-   - **1a ✅ 已完成(2026-08-18,`db_update_v2.0.31.sql`)**:SITE 表(含 CUTOVER_DATE／PATIENT_ID_SHARED)+ RC_STUDY.SITE_CODE + 索引 + 外鍵。純新增、零行為變更。已對 .191 以 BEGIN…ROLLBACK 連續套用兩次驗過(冪等 + 回滾歸零),**尚未正式套用**。
-   - **1b 待做**:改 `store_dicom`／`insert_dicom_info` 蓋章 + 跨院區同 UID 護欄 → `study_split`／`viewer_station.qc` 複製欄位加 SITE_CODE → `NetworkConfig` 加 `siteCode` → AE 設定匯入。進檔時的四種情況(含停用中院區拒收)見「院區的生命週期」一節,已定案。
+   - **1a ✅ 已完成(2026-08-18,`db_update_v2.0.31.sql`)**:SITE 表(含 CUTOVER_DATE／PATIENT_ID_SHARED)+ RC_STUDY.SITE_CODE + 索引 + 外鍵。純新增、零行為變更。已套用 .191。
+   - **1b ✅ 已完成(2026-08-19)**:`store_dicom`／`insert_dicom_info` 蓋章 + 跨院區同 UID 護欄 → `study_split`／`viewer_station.qc` 複製欄位帶 SITE_CODE → `NetworkConfig` 加 `siteCode`。**已用真的 C-STORE 對 .191 端到端驗過五種情況**,見下方「1b 驗證結果」。剩「AE 設定匯入」歸到階段三的管理 UI。
+
+### 1b 驗證結果(2026-08-19,.191,真 C-STORE 送檔)
+
+用 fo-dicom 送真的 C-STORE 到 `.191:2020`(called `HDPACS` / calling `TESTSCU`),逐一驗五種情況:
+
+| # | 情況 | AE 的 siteCode | 預期 | 實際 |
+|---|---|---|---|---|
+| T1 | 未設定 | (無) | 收下、未歸戶 | STUDY_REF 68 建立,SITE_CODE NULL ✅ |
+| T2 | 正常歸戶 | `HQ` | 蓋上 HQ | STUDY_REF 69 SITE_CODE=`HQ` ✅ |
+| T3 | 補蓋 | `HQ` | 既存未歸戶的補蓋上 | STUDY_REF 68 由 NULL → `HQ` ✅ |
+| T4 | 查無此碼 | `NOSUCH` | 收下當未歸戶 + WARNING | STUDY_REF 70 建立,SITE_CODE NULL ✅ |
+| T5 | 停用院區 | `OLDSITE` | 拒收 | 無 RC_STUDY 列;RC_ERROR_DATASET 記下 `Site [OLDSITE] is disabled (retirement in progress)` ✅ |
+| T6 | 跨院區同 UID | `BRANCH` | 拒收,不併入 | study 仍屬 `HQ` 且物件數不變;錯誤訊息 `Cross-site study conflict: [...] owned by [HQ], incoming from [BRANCH]` ✅ |
+
+順帶驗證了兩件先前只是假設的事:
+
+- **`siteCode` 取自 calling AE**(`get_ae_config('NETWORK','DICOM',{aeRef: calling_ae_ref})`),不是 called AE。
+- **掛院區確實零 schema 變更**:`get_ae_config` 的 `includeMain` 只是把 `AE_MAIN` 的五個欄位併進結果,不是設定繼承;每個 AE 的 `AE_CONFIG.VALUE` 各自獨立,加 `siteCode` 就是 jsonb 多一個 key。C# 這端 `NetworkConfig` 全程唯讀(只有 `GetConfig` 反序列化,沒有任何地方序列化寫回),所以不存在「C# 少一個屬性 → 存檔時把 siteCode 洗掉」的風險。
+
+### ⚠️ 1b 驗證抓到的問題:拒收被回報成「成功」
+
+T5／T6 在 DB 端擋得乾淨,**但送檔端收到的 DICOM 狀態是 `Warning B000 (Coercion of Data Elements)`**。B000 在 DICOM 語意上屬於**警告而非失敗**——儀器會認定影像已經存檔,可能就把本機那份刪掉。
+
+成因不在多院區:`DicomStoreProcess.FileIO.cs` 的 `HandleStorageError` 把**任何**儲存例外一律映射成 `DicomStatus.StorageCoercionOfDataElements`,這是既有行為,多院區的 `RAISE EXCEPTION` 只是流進了同一條路。
+
+影響最大的正是退場情境——「停用院區以停止進檔」時,儀器會以為送成功了。資料本身沒有遺失(檔案落在 `Error/` 目錄 + `RC_ERROR_DATASET` 有記錄),但**送檔端不知道要重送或告警**。
+
+尚未修改,因為改 `HandleStorageError` 會影響所有儲存錯誤的回報(有些站台可能靠 B000 避免儀器不斷重試),不宜在多院區這條線上順手改掉。要修的話正確方向是讓政策性拒收走**失敗**狀態(例如 `0xC000`),與「處理失敗」區分開。列入待議。
 2. **階段二**:出口過濾(C-FIND/C-MOVE/QIDO/WADO/Viewer)+RLS + **整院匯出／退場工具**(RLS 同時是誤刪的第二道,所以與出口過濾同階段做)。
 3. **階段三**:管理 UI(SITE/掛院區/認領/分界日/退場流程)。
 
@@ -303,6 +331,7 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 - 病患複合顯示:`PATIENT_ID_SHARED=false` 時,Viewer 顯示 PatientID 要不要帶院區前綴(同號不同人的視覺區辨),UI 階段再議。
 - 混合部署(同一台同時有獨立編號與共用編號的院區群)需要 `SITE.GROUP_CODE` 之類的群組概念,目前無此需求,先不做。
 - Worklist 線(擱置中)回來後:HDM 表是否也加 SITE_CODE、物種中翻英(狗→Feline 對調)一併處理。
+- **拒收的 DICOM 狀態碼**:政策性拒收(停用院區、跨院區衝突)目前回 `Warning B000`,儀器會誤判為成功。要不要讓它回失敗狀態、以及是否只針對政策性拒收而不動其他儲存錯誤,待定。見上方「1b 驗證抓到的問題」。
 
 ---
 
