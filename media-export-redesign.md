@@ -526,3 +526,154 @@ legacy worker 用一個 `onlyJpeg` 布林值表達，那只夠表達「純 DICOM
    `worklistStudyInstanceUid ?? studyInstanceUid` 當比對鍵。
 4. **`ITEM` 的保留期**：job 本身可以清，但稽核快照要留多久？（跟病歷保存年限有關，
    可能不該跟 job 一起 `ON DELETE CASCADE`。）
+
+
+---
+
+## 8. 歷史清單與過期標記（REQ-020，2026-08-20 定案）
+
+起因：Viewer 端要讓醫師看「自己過去匯出過什麼」。原本 `GET` 只吃單一 `jobRef`，
+沒有清單。
+
+### 8.1 身分：只在 JWT 下成立
+
+歸屬取自憑證的 `sub`，這條原則不動：
+
+| 認證 | `sub` | 清單的意義 |
+|---|---|---|
+| Keycloak JWT | 使用者 UUID | **這個人的歷史** |
+| API Key | 金鑰 id | 這把金鑰的歷史（多人共用會混在一起） |
+
+Viewer 走 JWT（2026-08-20 確認），所以「當下使用者的歷史」自然成立，
+不必在 `PACKAGE_JOB` 加任何欄位。
+
+**絕對不提供「指定 owner」的查詢參數** —— owner 一律由憑證決定，
+否則這個端點就從「只能看自己」退化成越權查詢工具。將來若要管理員看全部，
+另開 scope（`export.admin`）分開設計。
+
+### 8.2 端點
+
+```
+GET /export/packages
+  ?limit=20                                 # 預設 20，上限 100（超過夾到 100，不報錯）
+  &beforeJobId=1234                         # 游標：取 jobId 小於它的
+  &state=ready&state=failed                 # 可重複；不認識的值回 400
+  &createdFrom=2026-08-01T00:00:00+08:00    # 含
+  &createdTo=2026-09-01T00:00:00+08:00      # 不含
+```
+
+單筆 `GET /export/packages/{jobRef}` 完全不動。
+
+**分頁用 cursor 不用 offset。** 歷史清單一直有新 job 插到最前面，`offset` 分頁
+往下捲會重複或漏掉項目。
+
+**排序用 `jobId DESC` 不用 `createdAt DESC`。** 兩者實務同序（`JOB_ID` 是遞增序列），
+但資料庫上已有 `idx_package_job_requested_by ("REQUESTED_BY", "JOB_ID" DESC)`，
+正好就是這個查詢要的索引；改用 `createdAt` 排序吃不到它，還多一個同秒平手的問題。
+
+**日期邊界起含終不含。** 查 8 月整月就傳 `08-01` 到 `09-01`，不必去湊
+`08-31T23:59:59.999` —— 那個「漏掉最後一毫秒」的 bug 每個專案都會犯一次。
+
+**時區必須明確**：只接受帶偏移的 ISO 8601，裸日期 `2026-08-01` 回 400。
+裸日期一定要猜時區，猜錯就差 8 小時而且錯得很安靜；前端產帶偏移的字串很容易。
+
+**不給預設日期範圍。** 鎖住成本的是 cursor 分頁（沒帶日期時 `limit=20` 一樣
+只取最新 20 筆）。偷偷預設「近 30 天」會讓「找不到三個月前的紀錄」變成隱形問題。
+預設範圍是 UI 的事，畫面上看得到。
+
+**回 `hasMore` 不回 `total`。** 取 `limit + 1` 筆、多的那筆只用來判斷不回傳，
+比 `COUNT(*)` 便宜得多，對無限捲動也夠用。
+
+回應：
+
+```jsonc
+{
+  "items": [
+    {
+      "jobId": 1234, "state": "ready", "progress": 100, "priority": 0,
+      "downloadReady": true, "packagedCount": 744, "errorMessage": null,
+      "createdAt": "2026-08-19T15:33:12+08:00",
+      "modifiedAt": "2026-08-19T15:35:48+08:00"
+    }
+  ],
+  "hasMore": true
+}
+```
+
+`createdAt` / `modifiedAt` 對單筆 GET 也要補 —— **`get_package_job` 早就有回這兩個值，
+只是 API 層沒映射到 `ExportJobStatus`**，所以純粹是 C# 的事，不用改 proc。
+
+**過濾必須在 SQL 裡做。** 單筆是「抓回來再在 API 層比對 `RequestedBy`」，
+清單不能這樣（等於先撈全部再過濾），要新開 `export.list_package_jobs(jsonb)`。
+
+**稽核要寫**：記使用者、查詢條件、回傳筆數；**不記回傳的 jobId 清單** ——
+那會讓稽核紀錄膨脹得很快，而要追「誰動了哪個 job」，建立／下載那兩條稽核才是正本。
+
+### 8.3 過期標記：讓刪檔的人負責記錄
+
+**問題**：`downloadReady` 是 `RESULT_PATH IS NOT NULL AND STATE = 'ready'`，
+**從來沒有確認檔案還在不在**。而 worker 主迴圈裡有一段清理
+（[PackageService.cs:74](../HD.Net10/HD.MediaPackage/Service/PackageService.cs)）
+會按 `CreationTime` 刪掉超過 **寫死 2 天** 的目錄與 zip，**且完全不碰 DB**。
+
+所以檔案清掉之後，清單會一路顯示可下載，點下去才失敗。單筆查詢遇不到
+（剛建完就查），清單一定會遇到。
+
+**兩條路，選了 B：**
+
+- **A：查詢時檢查檔案** —— 清單 20 筆就 20 次檔案系統呼叫（NAS 上更慢），
+  而且有 TOCTOU：查的時候在、下載時被清掉。
+- **B：清理時把狀態改掉** —— 「檔案沒了」由**做這件事的人**負責記錄，
+  而不是讓每個讀取者事後去猜。查詢零成本，且永遠正確。
+
+**做法**：新增 `export.expire_package_jobs(p_days integer)` —— 找出 `STATE='ready'`
+且 `MODIFIED_AT` 早於 N 天的 job，回傳它們的 `RESULT_PATH`，同時把 `STATE` 改成
+`expired`、`RESULT_PATH` 設 `NULL`。worker 改成**先問 DB 要刪哪些**，再去刪那些路徑。
+
+這樣「哪些檔案該刪」與「哪些 job 該過期」變成同一個判斷，而不是現在的兩套各自為政。
+
+需要一併調整 `PACKAGE_JOB_STATE_check`（目前只允許 6 個值，要加 `expired`）。
+
+**已決**：
+
+1. **過期的 job 留著**，只改狀態、清路徑。歷史紀錄的價值就在「我三個月前匯出過這批」，
+   而且稽核也需要；整列刪掉的話清單會莫名其妙變短。
+2. **保留天數改成設定值，預設 7 天**（現在寫死 2 天）。醫師匯出後隔天想再下載一次，
+   2 天太短。放進 `HD_CONFIG` 的 `BURN_WORKSTATION`。
+
+使用者在清單上會看到 `state=expired`、`downloadReady=false`，
+比「看起來能載、點了失敗」清楚得多。
+
+### 8.4 順帶查出來的既有問題：光碟封面只認第一個病人
+
+`claim_package_job_payload` 建 `studyInfoList` 是 `GROUP BY STUDY_INSTANCE_UID`，
+每個 study 各自帶 `patientId` / `patientName`，**所以一個 job 裝多 study、
+甚至跨病人，資料層完全支援**。
+
+但 [PackageService.cs:489](../HD.Net10/HD.MediaPackage/Service/PackageService.cs)：
+
+```csharp
+if (job.coverInfo != null)
+{
+    DicomFile dcmTemp = DicomFile.Open(job.studyInfoList[0].fileList[0]);
+    // 從這一張影像抽 tag 去填光碟封面標籤
+```
+
+封面標籤的值取自**第一個 study 的第一張影像**。跨病人的 job 燒出來的光碟，
+**封面只印病人 A，片子裡卻同時有 A 和 B** —— 拿到片子的人會以為整張都是 A 的。
+臨床上會出事。
+
+範圍限於 `coverInfo != null`（燒錄／光碟情境）；Viewer 的 zip 下載不受影響。
+
+**決策（2026-08-20）：封面要能呈現多人**，不是跨病人就拒收。獨立項目，
+不併入 REQ-020，見 backlog REQ-021。
+
+### 8.5 已知的擴充點（現在刻意不做）
+
+- **`patientId` / `accessionNumber` 篩選**：那些資料在 `PACKAGE_JOB_SELECTION`，
+  是三欄式 UID，`patientId` 還要再往 `RC_STUDY` join，查詢會變重。而且一個 job
+  可能橫跨多病人，清單上放單一 `patientId` 欄位反而會誤導。晚一版再說。
+- **日期範圍的索引**：加了日期之後它是殘餘過濾 —— 查久遠區間時得從最新往回走。
+  單一使用者幾百筆 job 完全無感。等到有人累積到幾千筆而且常查久遠區間，
+  再加 `("REQUESTED_BY", "CREATED_AT" DESC, "JOB_ID" DESC)` 並把 cursor 改成
+  `(createdAt, jobId)` 複合游標。現在做是過度設計。

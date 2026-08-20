@@ -92,6 +92,26 @@
 - **為什麼沒能定案**：使用者重新匯入 + 重啟服務之後恢復。而「重新匯入之後、重啟之前」只送出過一個請求，看片端 1 秒後被關閉，**沒有任何回應被記錄** —— 兩個變因分不開。
 - **下次發生時的取樣順序**（寫在系統文件裡）：① 先備份 `/home/HD/logs/web-server.log`（重啟會清掉）② 在 404 當下跑診斷 SQL 看 `qido_query` 回幾列 ③ 取樣完才重啟。
 
+### REQ-020　Export API：打包歷史清單 + 過期標記
+- **狀態**：**設計定案（2026-08-20），待實作**。設計正本在 [media-export-redesign.md](media-export-redesign.md) 第 8 節
+- **系統**：`HD.Export`（API）＋ `HD.Net10`（worker 清理）＋ `Database`（新 proc）
+- **起因**：Viewer 端要讓醫師看「自己過去匯出過什麼」。原本 `GET` 只吃單一 `jobRef`，沒有清單。
+- **做什麼**：新開 `GET /export/packages`（cursor 分頁、狀態多選、`CREATED_AT` 日期區間），單筆端點完全不動。歸屬仍取憑證 `sub`，**不提供指定 owner 的參數**（否則會退化成越權查詢工具）。Viewer 走 JWT 所以「當下使用者的歷史」自然成立，`PACKAGE_JOB` 不必加欄位。
+- **順帶要補的**：`ExportJobStatus` **完全沒有時間欄位**，歷史清單沒有時間就沒法看。`get_package_job` 早就有回 `createdAt`／`modifiedAt`，只是 API 層沒映射 —— 純 C# 改動，不用動 proc。
+- **同時解決一個會騙人的地方**：`downloadReady` 是 `RESULT_PATH IS NOT NULL AND STATE = 'ready'`，**從來沒確認檔案還在不在**；而 worker 主迴圈會按 `CreationTime` 刪掉超過**寫死 2 天**的產出，**且完全不碰 DB**。所以檔案清掉後清單會一路顯示可下載、點了才失敗。單筆查詢遇不到（剛建完就查），清單一定會遇到。
+- **解法（選 B 不選 A）**：新增 `export.expire_package_jobs(p_days)` —— 找出該過期的 job，回傳 `RESULT_PATH` 並同時把 `STATE` 改 `expired`、路徑設 NULL；worker 改成**先問 DB 要刪哪些**再去刪。「檔案沒了」由做這件事的人負責記錄，而不是讓每個讀取者事後去猜（A 是查詢時逐筆 stat：成本攤給所有查詢、NAS 上更慢、而且有 TOCTOU，永遠不可能完全準）。
+- **已決**：過期的 job **留著**只改狀態（歷史紀錄的價值就在「我三個月前匯出過這批」，稽核也需要）；保留天數改**設定值、預設 7 天**（現在寫死 2 天，醫師隔天想再下載一次就沒了）。清單查詢**要寫稽核**（記使用者／條件／筆數，不記 jobId 清單）。
+- **要一併改**：`PACKAGE_JOB_STATE_check` 目前只允許 6 個值，要加 `expired`。
+- **刻意不做**：`patientId`／`accessionNumber` 篩選（資料在 `SELECTION` 是三欄式 UID，還要往 `RC_STUDY` join；且一個 job 可跨多病人，清單放單一 `patientId` 反而誤導）。日期範圍的專屬索引（現有 `("REQUESTED_BY","JOB_ID" DESC)` 對每人幾百筆完全夠用，現在加是過度設計）。
+
+### REQ-021　燒錄光碟封面只認第一個病人
+- **狀態**：提出（2026-08-20，查 REQ-020 時順帶發現）
+- **系統**：主 PACS（HD.Net10）hd-media-package
+- **現象**：`PackageService.cs:489` 的封面標籤值取自 `job.studyInfoList[0].fileList[0]` —— **第一個 study 的第一張影像**。跨病人的 job 燒出來的光碟，封面只印病人 A 的姓名／病歷號，片子裡卻同時有 A 和 B。
+- **為什麼是真問題**：資料層**完全支援**跨病人（`claim_package_job_payload` 是 `GROUP BY STUDY_INSTANCE_UID`，每個 study 各自帶 `patientId`／`patientName`），所以這種 job 建得出來、燒得出來，只有封面會說謊。拿到片子的人會以為整張都是封面上那個人的 —— 臨床上會出事。
+- **範圍**：只在 `coverInfo != null` 時（燒錄／光碟情境）。Viewer 的 zip 下載不受影響。
+- **決策（2026-08-20）**：**封面要能呈現多人**，不是跨病人就拒收。實際呈現方式（列出全部？「A 等 N 位」？）待設計。
+
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
 - **狀態**：提出（2026-08-03，觀察）
 - **系統**：DicomWeb（HD.Pacs.DicomWeb）
