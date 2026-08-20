@@ -1,0 +1,19 @@
+---
+name: project-viewer-doctor-requests
+description: "若瑟醫院陳醫師的桌面 Viewer 五項需求(2026-08-11 立案,優先插隊);HU 即時量測/縮圖列寬度/連動未啟動不跳登入/close history 不重舖/設定視窗字體隨解析度"
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: 13e6b6ed-984d-4c27-aed8-2170077bfa02
+  modified: 2026-08-12T15:52:57.081Z
+---
+
+**若瑟醫院 陳醫師 Viewer 需求(2026-08-11 記錄,使用者宣告優先做;動物總主機 HOSPITAL_CODE 設計已出正本 docs/hospital-code-design.md 暫停)。清單正本=docs/todo.md「影像看片」區:**
+
+1. ~~HU 即時量測~~ **建置完成(2026-08-11,viewer repo `15d9509`,待實機驗收)**:新工具 HU_PROBE(ToolType.Pixel/IsKeepTool),MouseMove 取值→Paint 疊繪游標旁(30fps 管線),樣式沿用 PIXEL_VALUE 標註設定;MouseLeave 清除、右鍵退回;工具面板/快捷鍵已註冊。順手快取 rescale 後 IPixelData(ObjectElement)。
+2. ~~縮圖列寬度~~ **完成(2026-08-11,`7fbd453`,待驗收)**:ViewerLayout.ImagebarWidth(預設 140=原硬編碼,per-modality);設定 UI=設定→預設格式→「影像列位置」下拉旁「影像列寬(px)」(runtime 加欄,`4879fd2`);作用於 Left/Right 停靠(Top/Bottom 高度自動)。Dock Panel Portion 四欄 UI 已整組移除(使用者證實:原意統一控各面板停靠尺寸,因 Menu/工具列各邊需求不同棄置;dockPanelPortion 資料模型保留)。
+3. ~~連動喚起 bug~~ **查明+修正(`15d9509`)+開發機端到端驗證通過(2026-08-12)，現場尚未測**:鏈路=HIS→LinkClientDesktop(gRPC :5002)→Executer(tray)→NamedPipe "HD.DicomImageViewer.Pipe"→Viewer。三問題:①Executer 冷啟動不補送訊息(調閱丟棄)→改輪詢 pipe 補送(30s)+ViewerPath 驗證;②登入視窗顯示中 pipe 訊息被丟→改排隊+登入後補處理;③部署 Executer appsettings ViewerPath 指舊開發機路徑——**使用者確認現場這條設定正常(現場一直在用看片,不是這條)**,純粹是這台開發測試機的 appsettings.json 沒跟上 net10 遷移路徑(已修正,值屬機器層級不 push)。ViewerLinkerService.cs 原為 Big5 已轉 UTF-8(Viewer repo 還有其他 Big5 檔,Edit 前先驗編碼)。2026-08-12 用 `LinkClientDesktop.exe` 在開發機完整跑過一輪(Viewer 未開→送 OPEN_STUDY→Executer 自動叫起→登入視窗跳出→登入成功→pending 訊息 flush→開檢查),log 全程正常,①②兩處修正證實有效。順手修一個測試時發現的：LoginForm 設計時 TopMost=true,但 `MessageBox.Show` 沒帶 owner,登入失敗提示視窗會被蓋住點不到,已補 owner(`da8b6c7`,已 push)。**現場那台部署機是否已是含 `15d9509` 的版本、且是否真的重現「Viewer 未開時連動不跳登入視窗」這個現場場景,還沒有人實際測過**——Executer 跟 Viewer 兩邊都要更新到含這次修正的版本才會生效。
+4. ~~close history 不重舖~~ **完成+已合併 master 並 push(2026-08-12,`25604f5`;單/雙螢幕實機驗證,待現場驗收)**:設計正本 `docs/viewer-layout-state-design.md`。根因=版面狀態(哪格顯示哪筆檢查/哪個 series/捲到第幾張/格數)存在控制項身上,而 `LayoutManager.ChangeLayout` 會重用控制項,所以任何變動都得先備份才能還原。解法=每個 study 格一本「冊子」(`StudyCellState`,按 StudyRef 分頁)。階段 0(`fc4ee7d`)開歷史只佔一格+單螢幕自動擴充(順帶解掉單螢幕醫師完全無法並排比對);階段 1(`b61d60a`)建冊子+拍快照;階段 3(`724b4bc`)**改造 REFRESH_STUDY 而非新增指令**(HIS 沒有「關閉某筆歷史」的概念,回到原本要打的那筆=視同不看歷史,所以 HIS 端不用改)。階段 2(控制項改看冊子)刻意跳過,非交付前置條件。**重要教訓**:`currentMonitor` 是 `Screen.AllScreens` 列舉序(通常主螢幕排第一)**不是左到右**,驗證多螢幕行為時極易在錯的螢幕上操作、白繞很多圈;log 一律要印裝置名稱+左緣座標。另:「螢幕存在」≠「該螢幕上有 Viewer 視窗」,兩者要分開判斷與顯示。
+5. ~~設定視窗字體隨解析度~~ **完成+100%已驗收+已 push(2026-08-12,`d1ddd99`)**:Utilities/ResolutionFontScale——(螢幕高/1080)÷(DeviceDpi/96) 差額倍率(>1.05 才動,cap 2×)。**原本只改 Form.Font 導致高解析+100%縮放時字變大但 Size/Padding 沒跟上→版面重疊裁切(使用者回報「怪怪的」)**;改用 `Control.Scale(SizeF)`(WinForms AutoScaleMode.Font DPI 縮放同一套機制)一次縮放 Bounds+Padding+Margin+字體,且會遞迴套到以 Controls 掛入的嵌入子設定頁,SettingsForm 不用再逐一呼叫 Apply(避免雙重縮放,呼叫點已精簡)。同一時段曾嘗試改行程 DPI awareness(Unaware→PerMonitorV2)修 MPR 3D 在 150% 填不滿右下象限的問題,多輪排查未解且引發新迴歸,已整批 git checkout 還原到 `404e52d`(MPR 3D 目前=原本行為,100%/150% 皆使用者確認無問題);過程中連帶遺失一個 MPR 工具列按鈕寬高量測修正(TextRenderer.MeasureText 取代字數估算的粗糙 heuristic)——**使用者 2026-08-12 決定不補,已結案**:那個修正只在行程改 PerMonitorV2、150% 下工具列字體會實際放大時才需要;DPI 模式既然已還原成 Unaware,MPR 工具列永遠拿到未縮放字體,原本的 heuristic 就夠用。日後若真的再改 DPI 模式才需要重看。**Ctrl+滾輪微調已完成(2026-08-12,`b4d5163`,已驗收)**:倍率=自動×使用者(0.7~2.5,每格±10%),存 `Settings.settingsFontScale`(本機設定,不進 DB UserConfig——顯示偏好不是設定內容,放進去會被設定頁變更偵測判成「已修改」)。**最關鍵的坑:`Control.Scale()` 只縮放 Bounds/Padding/Margin,不動字體**——先前「版面正常但字仍太小」就是這個原因;只改 Font 又會因為顯式設 Font 的控制項不吃 ambient 繼承而字大框沒跟上。正解=關掉所有巢狀表單 AutoScaleMode→遞迴縮放字體(**先蒐集完顯式 Font 清單再動手**,改了父層 Font 後 ReferenceEquals 就失準)→Scale() 處理版面→還原。另:`GetAutoScale` 依「表單所在螢幕」算,建構當下表單還沒掛進 MainForm 取到主螢幕,之後顯示在別顆螢幕會回不同值,增量 delta 全錯,所以自動倍率要在建構時定案不重算。
+
+對象=桌面 WinForms 看片(D:\Dev\HyperDigital 的 HD.DicomImageViewer,net10 版;非 Viewer.Server)。相關:[[project_dicom_status_bar]](狀態列元素在 StudyControl 下緣)、[[project_display_pipeline_optimization]](render 管線/RefreshIntervalMs)。

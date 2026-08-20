@@ -19,6 +19,14 @@
 
 ## 環境與發布
 - [environments.md](environments.md) — 主機盤點（含 .191 測試機）+ 發布資料位置 `D:\HD-Release\` + 舊換新討論。
+- [machine-setup.md](machine-setup.md) — **換一台機器怎麼建構這個專案**：路徑要一致、clone 11 個 repo、
+  git 帶不過去的 7 個設定檔、Claude 記憶的 junction 接法、兩台之間的同步紀律。
+
+## Claude Code 的記憶
+`claude-memory/` 是 Claude Code 跨對話記憶的**正本**，各機器的
+`~/.claude/projects/D--Dev-HyperDigital/memory` 是指向它的 junction，
+所以 `git pull` 就等於同步記憶。接法與還原方式見 [machine-setup.md](machine-setup.md)。
+**憑證明文不要寫進去** —— 它進版控了，git 歷史很難真正抹掉。
 
 ## 原始碼託管（2026-08-17 起）
 `D:\Dev\HyperDigital` 底下的 **11 個 repo** 一律雙 remote，`origin` 指向公司自架 Forgejo：

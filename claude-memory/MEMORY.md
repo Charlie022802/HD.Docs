@@ -1,0 +1,53 @@
+# Memory Index
+
+- [回覆語言](feedback_reply_language.md) — 一律用繁體中文回覆
+
+- [程式碼衛生](feedback_code_hygiene.md) — 四條:不要 emoji、別用 PowerShell 讀寫中文檔、驗證素材要有鑑別力、**斷言全綠不代表功能達成目的(要檢查時序)** — 程式碼/SQL **不要 emoji**(夾帶 U+FE0F 不可見字元,貼 pgAdmin 跳警告;md 不受限);**別用 PowerShell 讀寫含中文的檔案**(PS5.1 用 ANSI 讀 UTF-8→寫回變亂碼,我毀過 csproj);.ps1 要存 UTF-8 **with BOM**;驗證素材要有鑑別力
+
+- [系統文件正本](reference_system_docs.md) — 人可讀系統文件在 D:\Dev\HyperDigital\docs\(README索引+systems/+backlog+todo);做完事/定決策要順手更新這套(不只更新記憶)
+
+- [Git 託管](project_git_hosting.md) — 11 個 repo 全搬到公司 Forgejo(origin)、GitHub 降鏡像;docs\ 變成 HD.Docs repo;Database 目錄的 repo 叫 HDPACS-DB
+
+- [HD.Animal proxy](project_hd_animal_proxy.md) — **整個 repo 凍結不要修改(2026-08-18)**;.222 線上跑四支(CStoreSCP/WorklistSCP/ServiceManager/WebController),WinForms Controller 沒部署;三個弱點的判定依「有沒有部署」排序
+- [HD.Animal WebController](project_hd_animal_webcontroller.md) — planned Blazor Server rewrite of the Controller (web config UI + login/users + log viewer); design agreed, build pending
+- [Status bar migration](project_dicom_status_bar.md) — ZoomFactor/PixelValue etc. moved from MenuControl → StudyControl bottom strip
+- [Build paths](project_build_paths.md) — active copy is D:\Dev\HyperDigital (net10); C:\...\HD.Desktop is a stale v4.8 copy, don't build it
+- [Versioning](project_versioning.md) — version set in src/Directory.Build.props (not AssemblyInfo.cs), currently 2.1.0
+- [License mechanism](project_license_mechanism.md) — deferred in net10 (internal login covers it for now); old mechanism location + how to redo (signature-based) if revisited
+- [Viewer Server](project_viewer_server.md) — **ViewerWebApi 架構定案(2026-08-17)**:看片端只對 ViewerWebApi+DicomWeb、不再直連 DB;Server 端 API 做完、客戶端只接 1 處剩 56 處;hdctl 獨立元件 `viewerapi`;第一鏟=診斷包上傳
+- [NuGet 弱點](project_nuget_vulnerabilities.md) — REQ-017 **收尾:七個 repo 零弱點**;SSH.NET 是移除不是升版(在主PACS根本沒用、我原本記錯);Magick 升版靠三項實測放行;比像素不要比 PNG 檔案 SHA
+- [看片端診斷包](project_viewer_diagnostics.md) — REQ-016:log 全在醫師個人 PC 調閱不到;定案走 ViewerWebApi 傳到院內主機(非 DB);細流/粗流兩管道、Debug 不灌 LoggingPlatform;崩潰只留記號下次啟動才傳
+- [看片端安裝統一](project_viewer_install.md) — Inno Setup **已實作+實機驗證**(版本化目錄+current junction、三個安裝頁、退版);試裝抓到「Executer 開機自啟讀不到設定→連動全靜默死掉」;設定範本改 `.sample`、Host 留空
+- [看片端設定頁 UI](project_viewer_settings_ui.md) — 設定頁區塊樣式統一(SettingsPanelTheme)+舊工具列分組格式自動轉換;順手修掉「改變視窗大小會清掉快捷工具」等三個既有地雷
+- [看片端授權機制](project_viewer_license.md) — **全部完成**:改成線上註冊(DB 當信箱,看片端本來就連得到醫院主機),兩端+端到端實測皆過;**目前 Enforce=false 蒐集階段不擋人**,下次動工先確認要不要翻
+- [hd-web-server](project_hd_web_server.md) — 看片端的影像其實是同事那支 Node 服務送的(不是我們的 repo);排障看 journald 不看 log 檔、重啟會清 log;`filterCheck` 的 `length === 1` 對重複 UID 是致命的
+- [Viewer 醫師需求](project_viewer_doctor_requests.md) — 若瑟陳醫師五項(HU 即時量測/縮圖列寬度/連動登入 bug/close history 不重舖/字體隨解析度),2026-08-11 優先插隊
+- [Display pipeline optimization](project_display_pipeline_optimization.md) — 8-point plan for image render perf; points 1,2,4,6,7,8 done + 3 partial (cine prefetch; cross-instance CT/MR pending). Point 5 skipped by decision (low value). Only remaining: cross-instance CT/MR prefetch (needs design review—bg image creation + W/L clinical risk). Refresh now 30fps (RefreshIntervalMs in LayoutControl)
+- [fo-dicom 5 pixel gotcha](reference_fodicom5_pixel.md) — HU/pixel empty: ObjectElement.Dataset is metadata-only (no PixelData); read from LocalPath file + transcode if compressed (GetSourcePixelData); generalized unit via Rescale Type
+- [MPR 3D VTK](project_mpr_vtk.md) — 2D + 3D both DONE; 3D via OpenTK.GLControl 4.0.2 (GLSL raymarch, replaces old Activiz); DPI locked unaware; maximize on cursor screen; TransitionOverlay for progress; volume excludes LOCALIZER
+- [DPI mode](reference_dpi_mode.md) — app uses default SystemAware, no explicit HighDpiMode; runtime-added controls must self-scale by DeviceDpi (see AppHeaderBar)
+- [PACS DB schema](reference_pacs_db_schema.md) — DB schema SQL at D:\Dev\HyperDigital\Database\ (latest: HDPACS_20260811.sql,自 .191 拉);要動 DB 前若 dump 可能過時,主動請使用者重拉
+- [StudyClose flow](project_studyclose_flow.md) — STUDY_CLOSE map job (C# StudyClosedService rewrites files) → study_closed() DB proc fans out route/archive/callback/nearline;先改檔後扇出
+- [Shared logging](project_shared_logging.md) — HD.Shared.Logging 共用包(Serilog→HawkLog, CLEF+durable+自製 NDJSON formatter 避 v9 陣列坑)已建好+測過;各產品專案參考接入,pilot 未定;稽核走各自 DB 正本不走 HawkLog(無去重)
+- [版控慣例](feedback_versioning_convention.md) — 發布前語意版本固定、別每 build bump patch;序號只在交付時 +1;build 靠自動時間戳。細節在 user skill `hd-versioning`
+- [DicomWeb 實作雙軌](project_dicomweb_impl_split.md) — 生產(.199)用 Infrastructure 的 HdPacs*(Dapper→HDPACS RC_*)版,非 Application EF 版;改生產要改 HdPacs*。QIDO 回 transfer syntax(0008,3002)已做:STOW 併入 DATASET jsonb→QIDO 取值,僅新資料有。WADO 視訊短路待補 HdPacs 版
+- [DicomWeb 三強化](project_dicomweb_features.md) — 稽核緩衝+Admin登入+WADO匿名+授權收斂 全DONE+部署.199(commit 009b754)。金鑰管理改in-process(Blazor電路無HttpContext)、admin.api_keys改綁dicomWeb.manageApiKeys、AE下拉排AE_REF=1+上傳必填、重名擋、複製鈕HTTP fallback
+- [原始檔不可變+出口疊合](project_immutable_original_coerce.md) — 目標架構決策:進檔唯讀不可變、校正只寫DB、出口coerce疊RC_OBJECT.DATASET(UID雙保險父表);保留STUDY_CLOSE的update_study_info reconcile、砍C#改檔;WADO先做試點,其他出口後補
+- [DicomWeb 部署](project_dicomweb_deploy.md) — **.199 已全 hdctl 管理(2026-08-10)**:更新=hdpack+hdctl install、退版=rollback;兩 unit 模組正本在 manifest;HTTPS=nginx 443(hddicomweb);install.sh 退役留全新環境
+- [DicomWeb 認證對照](reference_dicomweb_auth.md) — **已切 Keycloak(.199)**:JWT=Keycloak(查HD_USER補scopes,無對應401)、dev-token/金鑰管理端點退役;MultiScheme 分派不變;anonymise claim 只 API Key 鑄
+- [主PACS 疊合+日誌](project_main_pacs_coerce_logging.md) — A0~A3 全完成;**九支全接集中日誌**(.191);接上即揪出兩蟲並修(DicomClient 工廠/JSON 容錯+單筆隔離)+watchdog 靜音;.191 更新慣例=tgz+update-services.sh
+- [主PACS 部署](project_main_pacs_deploy.md) — hdctl 統一框架;**.191 現在 pacs `2.0.6`(2026-08-17 佈兩次)**;打包=`bash deploy/pack-pacs.sh /d/HD-Release/packages`;`sudo` 要用 `/usr/local/bin/hdctl` 全路徑;**.191 沒有 cd-viewer-win → containViewer=true 會失敗**;階段三=.234 舊換新
+- [fo-dicom 5 client 坑](reference_fodicom5_client.md) — 兩顆「直接 new 出事」:①DicomClient 不可直接 new(必 NRE)→用 Factory ②**`new DicomImage` 的 ImageManager 靠靜態 provider,Generic Host 沒接上→`AsSharpImage()` 回 null→NRE**(要 `DicomSetupBuilder().Build()`;Viewer/TestClient/DicomWeb 都有,只有 MediaPackage 漏)
+- [進檔瘦身](project_intake_slimming.md) — 停存.meta(REQ-006)+移除DicomToImage預轉JPEG(REQ-007)+DicomToVideo去留待議(REQ-008);已寫backlog未實作;REQ-007與A3的STUDY_CLOSE jpeg gate直接相依
+- [媒體匯出重新設計](project_media_export_redesign.md) — **打包進度回寫完成(REQ-018)**;教訓=四項斷言全綠但功能沒達成目的(被 continue 吃掉的呼叫) — 新四張表(PACKAGE_JOB/SELECTION/ITEM/DISC)+新proc、legacy不動;起因Viewer要用UID選影像+Kiosk要重構;archive淘汰;查出六用途共用一表、兩種BURN_INFO形狀靠硬編碼uuid切換、佇列無SKIP LOCKED
+- [REQ-003 Export WebApi](project_req003_export_webapi.md) — **已接 Keycloak JWT+CORS,對純前端 WebViewer 整條路實證(alpha.13)**;歸屬看憑證不看人 — 燒錄/媒體打包開成 API;**定案改獨立一支(不併 DicomWeb)**;薄殼端點已寫在 DicomWeb 待搬出;worker 保留;auth 先保留一條路
+- [Auth/Keycloak 計畫](project_auth_keycloak_plan.md) — AuthN=Keycloak(sso.ltcd.tw/realms/hd)/AuthZ 查 DB;**主控台+DicomWeb 已切完**(dev-token 全退役);OIDC 導頁六坑全記錄(aud/claim映射/cookie/query/PAR/id_token_hint/challenge/post-logout `+`);剩 Viewer + provisioning API;**Viewer 定調雙軌**(院內自建 Keycloak 未架,登入可提前做但不替換現行 WebApi 帳密登入)
+- [HD 管理主控台](project_hd_admin_console.md) — 三大功能(金鑰/匯出/稽核)+Keycloak 登入;**已部署 .191:5200**(self-contained /opt);http 站台 OIDC 三坑已修(cookie/query/關PAR)
+- [核心架構](project_core_architecture.md) — HD.Shared 四柱(Core/Logging/Auth/Events)+集中管理台+Keycloak;各產品只驗+打事件;**①已建 HD.Shared.Auth/Events 骨架(Keycloak+ScopeCatalog+事件模型)build 過**,下一鏟②DicomWeb 改 ref 共用包
+- [LoggingPlatform 產品分區](project_loggingplatform_product_zones.md) — 排障第一站:**P1 總覽+專區、P2 連線紀錄皆已上線 .195**(Category=connection+ConnectionLog 共用發送器,主 PACS SCP 全生命週期,C-STORE 彙總不逐筆);P3 完成(2026-08-10,詳記憶正文)
+- [API Key 收斂](project_dicomweb_apikey_consolidation.md) — DicomWeb 金鑰管理整理:scope 正本 ScopeCatalog + CRUD 正本 ApiKeyService(EF),退 raw-SQL ApiKeyAdminService;順修 export.* 可指派;已做未 commit
+- [.191 新版測試床](project_new_version_testbed_191.md) — .191 隔離新版測試床(自有 DB v2.0.27+NAS .229:/HDPACS);**DicomWeb 定案續留 .199 連 .191 DB(不上 .191)**;種子/匿名/端到端皆完成
+- [REQ-004 縮圖快取](project_dicomweb_thumbnail_cache.md) — DicomWeb 縮圖/rendered 加記憶體快取;生產 HdPacsWadoService 零快取、pre-gen pipeline 錯棚不救;W/L 校正需可重轉(version 綁 DATE_TIME_MODIFIED + render 套 coerce W/L)
+- [UPS-RS](project_ups_rs.md) — DICOMweb 工作清單放 HD.Pacs.DicomWeb、獨立 UPS_WORKITEM 表(public)、目標同一份worklist但橋接HDM延後;phase1(建/搜/取/改狀態+txn鎖/改屬性/取消)已建置未部署;DB migration 004 使用者自跑
+- [i18n 規劃](project_i18n_plan.md) — 多語系已定案(resx+IStringLocalizer,日誌不翻,正本 docs/i18n-plan.md);新 UI 一律 localizer
+- [多院區主機](project_multi_site_host.md) — **階段一完成並套用 .191(v2.0.31,2026-08-18)**:SITE 表+RC_STUDY.SITE_CODE+四個 INSERT 點蓋章;停用院區拒收、SITE 只停用不刪除、出口過濾以「SITE 表有沒有資料」當總開關 — **不是「動物醫院總主機」,是多院區承載(2026-08-18 更正)**;SITE_CODE 蓋章+出口過濾;病歷號作用域靠 SITE.PATIENT_ID_SHARED 設定(預設 false=嚴格隔離);設計完備待開工
