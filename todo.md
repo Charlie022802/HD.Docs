@@ -60,6 +60,14 @@
 - [x] 端到端前置全解：export scope 可指派、`insert_package_job` 兩 bug 修（v2.0.27）、burnTemp 搬 NAS。
 - [x] **DicomWeb 側 export 端點下架**（2026-08-06，`fcf7d6d` 部署 .199 驗證：5080 /export 回 404、5090 照常）。
 - [x] HD.Export GitHub remote：Charlie022802/HD.Export（2026-08-06 已推）。
+- [x] **REQ-020 歷史清單＋過期標記（2026-08-21 三層全部上線驗證）**：DB `v2.0.32`（.191）＋pacs `2.0.12`（.191 worker）＋Export `0.1.0-alpha.14`（.199）。新增 `GET /export/packages`（游標分頁、狀態多選、`CREATED_AT` 區間），單筆端點不動只多回 `createdAt`／`modifiedAt`。清理改由 DB 主導：`expire_package_jobs` 標記 `expired`＋清 `RESULT_PATH`，worker 拿回路徑才刪檔，所以 `downloadReady` 不會再騙人。保留天數改設定（`packageRetainDays`，預設 7，原本寫死 2）。順帶修掉撞號（新表產出移到 `burnTemp/package/`）與版本雙來源（hdpack 加護欄）。設計正本＝[media-export-redesign.md](media-export-redesign.md) 第 8 節。
+- [ ] **⏰ 2026-08-28 要回頭確認：`burnTemp/package/` 沒有被 legacy 的時間掃描誤刪**。
+      `CleanUpLegacyOutputs` 有跳過這個容器目錄的判斷，但**它的失敗要滿 7 天才會現形**——
+      `package/` 只會被建立一次，建立時間一旦超過保留天數，掃到就會把裡面**所有還沒過期的產出
+      一起刪光，而且 DB 完全不知情**，正好製造出 REQ-020 要消滅的那種「說謊的 ready」。
+      2026-08-21 部署當天 `package/` 才 0 天大，測不出來，只有程式碼層面確認過。
+      **怎麼確認**：`ls /home/HD/data/burnTemp/package/` 還在，且裡面沒過期的 job 仍能下載；
+      或在 worker log 搜 `Delete directory` 看有沒有出現 `.../burnTemp/package`（出現就是漏了）。
 - [ ] 長期：Export 整支取代 hd-media-package（燒錄佇列/取件號/費用/光碟 viewer 收進來）。
 - [ ] 人用 Keycloak token 呼叫：ResolveScopes 已支援 ACCESS.export 區段（HD.Shared `f52b1fa`）；等 Export 接 MultiScheme+Keycloak 時啟用。
 

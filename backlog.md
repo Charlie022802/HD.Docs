@@ -93,7 +93,9 @@
 - **下次發生時的取樣順序**（寫在系統文件裡）：① 先備份 `/home/HD/logs/web-server.log`（重啟會清掉）② 在 404 當下跑診斷 SQL 看 `qido_query` 回幾列 ③ 取樣完才重啟。
 
 ### REQ-020　Export API：打包歷史清單 + 過期標記
-- **狀態**：**設計定案（2026-08-20），待實作**。設計正本在 [media-export-redesign.md](media-export-redesign.md) 第 8 節
+- **狀態**：**完成（2026-08-21）** —— 三層全部上線並驗證：DB `v2.0.32`（.191）、pacs `2.0.12`（.191 worker）、Export `0.1.0-alpha.14`（.199）。設計正本在 [media-export-redesign.md](media-export-redesign.md) 第 8 節
+- **實機驗證**：worker 端把保留天數暫調成 2 天，下一輪就把 50 筆從 `ready` 標成 `expired`＋清空 `RESULT_PATH`，當天建的 job 完全沒被碰——同時證明了程式碼有執行、讀得到設定、只動該動的。API 端 19 項端到端檢查全過，稽核確實落地。
+- **順帶修掉三件**：①過期 job 的 409 訊息還是「打包尚未完成」（加了新狀態卻沒回頭看訊息），改成按狀態分別給 ②兩張 job 表撞號（見設計文件 8.5）③版本雙來源導致 `/health` 說謊，在 hdpack 加護欄
 - **系統**：`HD.Export`（API）＋ `HD.Net10`（worker 清理）＋ `Database`（新 proc）
 - **起因**：Viewer 端要讓醫師看「自己過去匯出過什麼」。原本 `GET` 只吃單一 `jobRef`，沒有清單。
 - **做什麼**：新開 `GET /export/packages`（cursor 分頁、狀態多選、`CREATED_AT` 日期區間），單筆端點完全不動。歸屬仍取憑證 `sub`，**不提供指定 owner 的參數**（否則會退化成越權查詢工具）。Viewer 走 JWT 所以「當下使用者的歷史」自然成立，`PACKAGE_JOB` 不必加欄位。
