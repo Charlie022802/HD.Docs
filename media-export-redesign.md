@@ -668,7 +668,54 @@ if (job.coverInfo != null)
 **決策（2026-08-20）：封面要能呈現多人**，不是跨病人就拒收。獨立項目，
 不併入 REQ-020，見 backlog REQ-021。
 
-### 8.5 已知的擴充點（現在刻意不做）
+### 8.5 動清理時查出來的撞號：兩張表共用輸出目錄
+
+改 worker 的清理時發現的，**比清理本身嚴重**。
+
+兩條路的產出目錄都是 `burnTempPath/{jobRef}`、zip 都是 `burnTempPath/{jobRef}.zip`，
+而 `jobRef` 一邊來自 `EXPORT_JOB.JOB_REF`、一邊來自 `PACKAGE_JOB.JOB_ID` ——
+**兩個彼此不知道對方存在的序列**。
+
+而 worker 開工前會這樣做（`PackageService.cs`）：
+
+```csharp
+else
+{
+    Directory.Delete(BurnTempFolder, true);   // 目錄已存在 -> 整個砍掉重來
+}
+```
+
+zip 那邊同理（`if (File.Exists(zipFileName)) File.Delete(zipFileName);`）。
+
+所以兩張表出現同一個編號時，**後開工的 job 會把前一個的產出整包刪掉**，
+而前一個在 DB 裡仍是 `ready`、`RESULT_PATH` 還指著那個路徑。使用者點下載才發現沒了，
+原因與保留期毫無關係。撞的當下**沒有任何徵兆**：不報錯，log 只會正常地說
+`Start Package Job: [5]`。
+
+`.191` 上目前不會發生，但那是巧合 —— `EXPORT_JOB` 是 1~8、`PACKAGE_JOB` 是 50~126，
+剛好沒交集。**生產環境的 `EXPORT_JOB` 已經累積很久，而 `PACKAGE_JOB` 從 1 開始**，
+兩條路同時在跑的站台撞號幾乎是必然。
+
+**修法（2026-08-20 決策）**：新表的產出改放專屬子目錄
+`burnTempPath/package/{jobId}`，legacy 完全不動 —— 桌面燒錄與 Kiosk 讀寫自己的產出
+不受任何影響。`RESULT_PATH` 是 worker 從這個值寫進 DB 的，所以改路徑會自動流到下載端，
+不必另外同步；既有資料也不必遷移（舊 job 的 `RESULT_PATH` 仍指著舊位置，照樣解析得到）。
+
+**連帶必須做的一件事**：legacy 那條時間掃描要**跳過 `package` 這個容器目錄**。
+它只會被建立一次，建立時間很快就超過保留天數，掃到就會把裡面所有還沒過期的新表產出
+一起刪光，而且 DB 完全不知情 —— 正好製造出這一節要消滅的那種「說謊的 ready」。
+
+### 8.5.1 清理的順序：先改 DB、後刪檔
+
+`CleanUpPackageJobOutputs` 的順序是刻意的。反過來的話（先刪檔、後更新 DB），
+刪檔成功但 DB 更新失敗就回到原本那個會騙人的狀態。照現在的順序，就算刪檔失敗，
+使用者看到的也只是「已過期」—— 資訊是對的，最多留下一份沒清掉的檔案，下一輪還會再試。
+
+`RESULT_PATH` 可能是目錄（未壓縮）也可能是 zip 檔（壓縮過），兩種都要處理；
+路徑已經不存在時不算錯誤（可能是手動清過，或上一輪刪了但 DB 沒更新成功），
+DB 標記為 `expired` 才是要的結果。
+
+### 8.6 已知的擴充點（現在刻意不做）
 
 - **`patientId` / `accessionNumber` 篩選**：那些資料在 `PACKAGE_JOB_SELECTION`，
   是三欄式 UID，`patientId` 還要再往 `RC_STUDY` join，查詢會變重。而且一個 job
