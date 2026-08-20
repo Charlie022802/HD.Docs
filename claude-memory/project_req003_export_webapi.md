@@ -8,7 +8,10 @@ metadata:
   modified: 2026-08-17T05:55:21.049Z
 ---
 
-**🔑 已接 Keycloak JWT + CORS,對 WebViewer 整條路實證完畢(2026-08-18,`.199:5090` `0.1.0-alpha.13`)。**
+**🔑 現行 `.199:5090` `0.1.0-alpha.14`(2026-08-21)。五支端點:建立/清單/查單筆/取消/下載。**
+清單 `GET /export/packages` 是 REQ-020 加的(游標分頁、狀態多選、日期區間),**歸屬一律由憑證決定、沒有指定 owner 的參數** —— 否則會從「只能看自己」退化成越權查詢工具。細節見 [[project_media_export_redesign]]。
+
+**已接 Keycloak JWT + CORS,對 WebViewer 整條路實證完畢(2026-08-18)。**
 
 同事端是**純前端、只有 token 沒有金鑰**,卡在**兩道各自獨立的牆**:①只註冊 ApiKey,任何 Bearer 都被拒 ②完全沒有 CORS,瀏覽器連 preflight 都過不了(連 401 都拿不到)。修法=MultiScheme(模式同 DicomWeb)+ CORS。
 - **CORS 要 expose `Content-Disposition`**,否則前端讀不到下載檔名(瀏覽器預設不讓 JS 讀)。
