@@ -129,7 +129,7 @@
 - **決定的做法（兩次快照）**：**上傳前給一次 metadata，打包前再跟 PACS 要一次。**
   第一次確保「東西一進 archive 就有 metadata 陪著」；第二次是因為上傳到打包之間 DB 可能又被校正或 QC 動過，要以最後的值為準。
 - **待確認**：metadata 的形狀（整份 `DATASET` jsonb？還是挑欄位）、失敗時的行為（metadata 拿不到要不要擋住打包）、以及第二次抓取的觸發點在 archive 端還是 PACS 端。
-- **與既有決策的關係**：[media-export-redesign](media-export-redesign.md) 第 7 節記的「archive 流程淘汰、`archiveItems`（nearline 撈回）一併退場」講的是**舊 `EXPORT_JOB` 裡那個 `archive` 用途**，理由正是「功能要改版」—— 改版的成果就是這套 HD-Archive。兩者不衝突。
+- **與既有決策的關係**：[media-export-redesign](media-export-redesign.md) 第 7 節記的「archive 流程淘汰」，範圍**只是「新的 export／打包流程裡不放 archive」** —— 那個用途不納入新的 `PACKAGE_JOB` 設計、不遷移，`archiveItems`（打包前先從 nearline 撈回檔案）也一併退場。**它跟 archive 功能本身無關，更不是在講 HD-Archive。** 兩件事各自獨立，不要當成因果。
 
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
 - **狀態**：提出（2026-08-03，觀察）

@@ -513,6 +513,10 @@ legacy worker 用一個 `onlyJpeg` 布林值表達，那只夠表達「純 DICOM
    「當初那片光碟燒了哪幾張」。`ITEM` 一併取代 jsonb 裡的 `discInfo`。
 2. **`archive` 流程淘汰** —— 功能要改版，不納入新設計、不遷移。`archiveItems`（nearline 撈回）
    一併退場。
+   **範圍澄清（2026-08-21）**：這條的意思**只是「新的 export／打包流程裡不放 archive」**，
+   也就是 `EXPORT_JOB` 那個 `archive` 用途不進 `PACKAGE_JOB`。**與 archive 功能本身無關，
+   也不是在指涉任何特定的 archive 改版方案。** 原本「功能要改版」這句話容易讓人把兩件事
+   接成因果（2026-08-21 就有人這樣誤讀），特此標明。
 3. **新舊並行、legacy 完全不動** —— 新開一組表與 proc，`EXPORT_JOB` 與那兩支 proc 原封不動
    繼續服務桌面端／kiosk／rimage，等新的穩定再逐一搬。
 
