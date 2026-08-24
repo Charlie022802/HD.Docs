@@ -32,6 +32,12 @@ metadata:
 
 相關:[[reference_pacs_db_schema]](migration 驗證方法)、[[project_media_export_redesign]]。
 
+**6. 資料庫的「宣稱」不是事實——查儲存狀態一定要落地到實體檔案(2026-08-24 一晚犯三次)。**
+
+**Why:** 若瑟資料流失排查,我三度根據 DB 欄位下結論、三度錯:①`NEARLINE_VOLUME_REF IS NOT NULL` 就宣告「沒有資料流失」②用 `CONCAT_WS` 組路徑(它會**跳過 NULL**,把「這層沒有位置」組成看似合法的相對路徑)於是報出 3463 個假遺失,真實是 7 ③只稽核「DB 說有的檔案」,漏掉 765 個**根本沒有位置紀錄**的 object,把 128 筆殘缺 study 誤判成完整。每一次都只有實際 `File.Exists` 才發現。
+
+**How to apply:** 涉及「東西還在不在」的判斷,**斷言必須落在最終事實上**(檔案存在、內容雜湊、實際容量變化),不能停在中介的中繼資料。驗證補救成效也一樣——那次確認 8089 筆 nearline 補完,靠的是**磁碟區可用空間少了 49 GB**,不是 DB 欄位變了。另一個反覆出現的形狀:**彙總欄位蓋不住個體**(`RC_STUDY` 的四個旗標是 per-study、位置是 per-object,旗標說 true 仍可能有 object 沒備份)。看到彙總旗標就要問「它是怎麼算出來的、什麼情況下會說謊」。細節見 `docs/systems/storage-tiers.md`。
+
 **5. 加一個新的列舉值／狀態，要回頭掃所有既有的分支與訊息。**
 2026-08-21 給 `PACKAGE_JOB` 加了 `expired` 狀態，DB、API、清單全都對，但下載被拒的
 409 訊息還是舊的「打包尚未完成」—— 而 `expired` 的 `progress` 是 100、也不是還在跑，
