@@ -114,6 +114,23 @@
 - **範圍**：只在 `coverInfo != null` 時（燒錄／光碟情境）。Viewer 的 zip 下載不受影響。
 - **決策（2026-08-20）**：**封面要能呈現多人**，不是跨病人就拒收。實際呈現方式（列出全部？「A 等 N 位」？）待設計。
 
+### REQ-022　Nearline：沿用舊版 NFS 檔案複製，但進檔只需做一次
+- **狀態**：定案（2026-08-21 會議），待實作
+- **系統**：主 PACS（HD.Net10）
+- **決定**：nearline 備份**保留舊版做法** —— NFS 掛載、檔案複製、插 job 交給服務執行。機制不改、`Insert Job` 的功能也**繼續保留**。
+- **唯一的差別，也是這次能簡化的原因**：以前只要 DICOM 檔被改過就得**重新插一次 job**（因為備份出去的副本過期了）。現在**原始檔不可變**，校正只寫 DB、出口才疊合（見 [immutable-original 決策](systems/main-pacs.md)），所以**檔案進來時做一次就夠了**，之後不論校正幾次都不必重做。
+- **要確認的**：現行程式碼裡「改檔後重新插 job」的觸發點還在不在（A3 已移除 `StudyClosedService.UpdateDicomFileSafe` 的改檔行為，但插 job 的路徑要逐一確認）；以及 QC 拆單／合併這種**真的會產生新檔**的情況仍然要插 job，不能一併拿掉。
+
+### REQ-023　Archive：上傳影像時一併帶 DB 當下的 metadata
+- **狀態**：定案（2026-08-21 會議），待實作
+- **系統**：主 PACS（HD.Net10）↔ **HD-Archive**（同事寫的新版 archive server）
+- **參考程式**：`D:\Dev\HyperDigital\Others\archiveServer`（**同事的 repo，不是我們的**）。S3 相容物件儲存：CAS 內容定址寫入、WORM（retain_until／legal_hold）、去重、多卷、唯讀 FUSE `/by-key` 視圖、Blazor 管理介面。規格在 `doc/01~03`。之後我們這邊要改接過去。
+- **要解的問題**：**萬一來源端資料庫整個消失，光靠 Archive 也要能還原出完整資料。** 現在 archive 只存影像檔，而校正後的正確值只活在 DB（原始檔不可變的必然結果）—— DB 沒了就只剩未校正的原始檔。
+- **決定的做法（兩次快照）**：**上傳前給一次 metadata，打包前再跟 PACS 要一次。**
+  第一次確保「東西一進 archive 就有 metadata 陪著」；第二次是因為上傳到打包之間 DB 可能又被校正或 QC 動過，要以最後的值為準。
+- **待確認**：metadata 的形狀（整份 `DATASET` jsonb？還是挑欄位）、失敗時的行為（metadata 拿不到要不要擋住打包）、以及第二次抓取的觸發點在 archive 端還是 PACS 端。
+- **與既有決策的關係**：[media-export-redesign](media-export-redesign.md) 第 7 節記的「archive 流程淘汰、`archiveItems`（nearline 撈回）一併退場」講的是**舊 `EXPORT_JOB` 裡那個 `archive` 用途**，理由正是「功能要改版」—— 改版的成果就是這套 HD-Archive。兩者不衝突。
+
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
 - **狀態**：提出（2026-08-03，觀察）
 - **系統**：DicomWeb（HD.Pacs.DicomWeb）

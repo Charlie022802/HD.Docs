@@ -13,6 +13,8 @@
 - [x] **WorklistSCP 轉發器優化（2026-08-10，HD.Animal `bdce2a7`，本機雙情境驗證）**：逐筆串流轉發（不再全收完才回）＋上游失敗/逾時回 ProcessingFailure（原本吞錯回空 Success，儀器分不出「失敗」與「沒單」）＋接上 Worklist.RequestTimeoutInMs（設定/WebController 有欄位但程式沒用）＋物種對照表驅動（行為不變；狗→Feline/貓→Canine 對調仍保留，待確認）。隨下次 .222 部署一起上。
 - [ ] ~~院區歸屬鏈（UserUUID/StowForwarder 版）~~ → **作廢（2026-08-11 Proxy 退役）**；歸屬改為 PACS 進檔蓋章，見上方 SITE_CODE 設計。舊 Proxy 各院 AE 清單仍是初始登記資料來源（AE→院區 匯入 AE_MAIN）。
 - [ ] 進檔蓋章：SITE_CODE＋病患複合身分（IssuerOfPatientID 概念；寫 DB 不改原始檔）。
+- [ ] **階段二：出口過濾**（2026-08-21 會議再次確認要推進）：C-FIND／C-MOVE 依 calling AE 的 `siteCode` 限制可見範圍。規則已定案——**`SITE` 表沒有資料＝多院區功能整個關閉、完全不過濾**（單一醫院零設定），啟用後 AE 掛 `siteCode = X` 就**只看得到 `SITE_CODE = X`**（刻意不是 `X OR NULL`，因為會先全部轉置好才開放）。`.191` 上留了 `HQ`／`BRANCH`／`OLDSITE` 三筆院區與測試 study 當現成 fixture。
+- [ ] Site 功能完善：管理 UI 的院區 CRU（**不含 D**——只停用不刪除，見設計正本「院區的生命週期」）、AE 掛院區的介面、未歸戶 study 的認領流程。
 - [ ] QIDO/WADO 依呼叫者院區過濾＋PostgreSQL RLS 護欄。
 - [ ] 新版 DicomWebViewer：院區顯示（順帶 Keycloak＋i18n 一起上）。
 
@@ -22,6 +24,8 @@
 - [x] **A3**：移除 `StudyClosedService.UpdateDicomFileSafe`（停止改檔）+ 2 呼叫點 + 孤兒 `DatasetsAreEqual` + 死掉的 tempInfo/TempPath/usings；保留 job 迴圈與 DB reconcile。commit+push `68b33e1`。**.191 驗證通過（2026-08-04）**：部署 hd-workflow-manager（先前 6 支沒裝此支），觸發 STUDY_CLOSE→檔案 md5 before==after 一字不差、DATASET 有校正標記但檔案沒有、STATUS→X。詳 [main-pacs.md](systems/main-pacs.md) / 記憶 project_main_pacs_coerce_logging。
 - [ ] A1 / CallBack 的 runtime 補測（選配，高信心；A2 已證機制）。
 - [~] 主 PACS 正式部署 — **暫緩（2026-08-04 決策：.234 先不動、保留舊版）**。新版續留 .191 測試。日後要上正式再處理 .234 建 hdadmin + 舊 CentOS/runtime，見 [environments.md](environments.md)。
+- [ ] **REQ-022 Nearline 沿用舊版 NFS 檔案複製**（2026-08-21 會議定案）：機制與 `Insert Job` 都不改，唯一差別是**進檔只需做一次**——原始檔不可變之後，校正不再產生新檔，所以不必「改檔後重插 job」。要逐一確認舊的重插觸發點是否還在，並保留 QC 拆單／合併這類**真的會產生新檔**的插 job 路徑。詳 [backlog REQ-022](backlog.md)。
+- [ ] **REQ-023 Archive 帶 metadata**（2026-08-21 會議定案）：**上傳前給一次、打包前再跟 PACS 要一次**，目的是「來源 DB 整個消失時，光靠 Archive 也能還原完整資料」。對接目標＝同事的 **HD-Archive**（`Others/archiveServer`，S3 相容 CAS＋WORM），之後我們這邊改接過去。待確認 metadata 形狀與失敗時的行為。詳 [backlog REQ-023](backlog.md)。
 - [ ] 清理：PACS `PostgresConnection` 帳密硬編碼 → 改讀 hd_conf.json/env。
 
 ## 進檔瘦身（REQ-006/007/008，設計見 [intake-slimming-design.md](intake-slimming-design.md)）
