@@ -64,6 +64,7 @@ repo 名稱與目錄名相同，**唯一的例外是 `Database\` 目錄對應的
 | 多語系（i18n）| [i18n-plan.md](i18n-plan.md) | 已定案規劃（resx+IStringLocalizer），P0 骨架待做 |
 | 多院區主機（院區歸屬） | [multi-site-design.md](multi-site-design.md) | 設計完備待開工：SITE_CODE 進檔蓋章＋出口過濾＋RLS。一台主機承載多院區，涵蓋「多家動物醫院共用總機」與「一家醫院的多分院」兩種形狀 |
 | 媒體匯出／燒錄 重新設計 | [media-export-redesign.md](media-export-redesign.md) | 設計中：新表＋新 proc（UID 三層級選擇、佇列併發、拆開 kiosk/rimage 專屬欄位）|
+| 儲存層與資料補回 | [systems/storage-tiers.md](systems/storage-tiers.md) | online/nearline/archive 資料模型、autopilot 清快取、稽核與補回 runbook。**v2.0.22 以下沒有 nearline 守門會清掉唯一一份**（若瑟 2026-08-24 事件） |
 
 ## 慣例
 - DB：單一 **HDPACS**（.234）。DB 變更用冪等 SQL，人工在 pgAdmin 執行（不由程式自動跑）。

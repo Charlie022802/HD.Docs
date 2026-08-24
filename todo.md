@@ -28,6 +28,16 @@
 - [ ] **REQ-023 Archive 帶 metadata**（2026-08-21 會議定案）：**上傳前給一次、打包前再跟 PACS 要一次**，目的是「來源 DB 整個消失時，光靠 Archive 也能還原完整資料」。對接目標＝同事的 **HD-Archive**（`Others/archiveServer`，S3 相容 CAS＋WORM），之後我們這邊改接過去。待確認 metadata 形狀與失敗時的行為。詳 [backlog REQ-023](backlog.md)。
 - [ ] 清理：PACS `PostgresConnection` 帳密硬編碼 → 改讀 hd_conf.json/env。
 
+## 儲存層 / 資料補回（正本＝[systems/storage-tiers.md](systems/storage-tiers.md)）
+2026-08-24 若瑟資料流失事件的後續。工具＝`HD.Net10/tools/HD.StorageAudit/`（hd-storage-audit + purge-for-resend.sh）。
+- [x] **若瑟資料補回（2026-08-24 完成）**：受損 122 筆 / 748 張 → **復原 79 筆 1066 個檔案零缺漏**（NONDICOM 重送），43 筆 449 張不可復原。同批補完 8089 筆 NEARLINE_BACKUP、126 筆分散兩層的 study 補齊校準（871 檔 1754 MB）。**全庫「線上有檔但無 nearline」已歸零**。
+- [ ] **若瑟升版到 v2.0.27 以上**（唯一能防復發的）：`get_next_delete_study` 在 v2.0.27 才加入「沒有 nearline 副本就不清」的守門，v2.0.22 會把唯一一份刪掉留下空殼——**這就是這次事件的成因，不升就會再發生**。
+- [ ] 若瑟 nearline 空間：VOL 3 已 94.6%（R）、VOL 7 85.9%（Y）。線上 89.9%，且 ARCHIVE 與 ONLINE 是同一個檔案系統（歸檔不會釋放線上空間）。
+- [ ] 若瑟 43 筆不可復原的明細送醫院（`/tmp/studies-nondicom-missing.csv`）。送之前值得查兩件事：有沒有被 ROUTE/CSTORE 到別的 AE、modality 分布（部分 CR 可能能從 AGFA PACS 撈回）。
+- [ ] 清若瑟的 285 個 nearline 孤兒檔（`/tmp/orphan-nearline.txt`）——CACHE_DELETE 只刪 online 檔，nearline 實體檔會失去所有指向。建議放一天再刪。
+- [ ] 定期稽核：把「線上有檔但無 nearline」與「三層都沒位置」納入例行檢查（兩者應長期為 0）。
+- [ ] 若瑟 study 1667133 的 1 張影像補 nearline（已排 job 50250589，待確認）。
+
 ## 進檔瘦身（REQ-006/007/008，設計見 [intake-slimming-design.md](intake-slimming-design.md)）
 - [x] **REQ-006** 進檔不再存 `.meta` — 完成、.191 驗過、commit（HD.Net10 `17de498` + HD.Pacs.DicomWeb `8fb0562`）。
 - [x] **REQ-007（PACS/DB 端）** 移除 DicomToImage — route A 完成、.191 驗過。C# `HD.Net10 86ef7bd`（下架 HD.DicomToImage + 清死碼）+ DB migration 併入開著未結案的 `Database/HDPACS/db_update_sql/db_update_v2.0.27.sql`（insert_dicom_info 一律 jpeg='N'、不 enqueue、gate 不動）+ `DB版本.xlsx` 2.0.27 分頁加列。
