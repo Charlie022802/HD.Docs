@@ -126,9 +126,26 @@
 - **系統**：主 PACS（HD.Net10）↔ **HD-Archive**（同事寫的新版 archive server）
 - **參考程式**：`D:\Dev\HyperDigital\Others\archiveServer`（**同事的 repo，不是我們的**）。S3 相容物件儲存：CAS 內容定址寫入、WORM（retain_until／legal_hold）、去重、多卷、唯讀 FUSE `/by-key` 視圖、Blazor 管理介面。規格在 `doc/01~03`。之後我們這邊要改接過去。
 - **要解的問題**：**萬一來源端資料庫整個消失，光靠 Archive 也要能還原出完整資料。** 現在 archive 只存影像檔，而校正後的正確值只活在 DB（原始檔不可變的必然結果）—— DB 沒了就只剩未校正的原始檔。
-- **決定的做法（兩次快照）**：**上傳前給一次 metadata，打包前再跟 PACS 要一次。**
-  第一次確保「東西一進 archive 就有 metadata 陪著」；第二次是因為上傳到打包之間 DB 可能又被校正或 QC 動過，要以最後的值為準。
-- **待確認**：metadata 的形狀（整份 `DATASET` jsonb？還是挑欄位）、失敗時的行為（metadata 拿不到要不要擋住打包）、以及第二次抓取的觸發點在 archive 端還是 PACS 端。
+- **⚠️ Export 與 Archive 是兩條不同的路線，講的時候要分開**（2026-08-21 釐清，混在一起講已經造成過誤解）：
+  - **匯出（export）**＝把資料**給出去**，不分對象（看片端下載、光碟燒錄）。**本需求與它無關。**
+  - **歸檔（archive）**＝存進長期保存。流程：**影像上傳到 ArchiveCache（暫存區）→ 整個 study 歸檔成一份**。
+  - **「打包」這個詞兩條路線都會用到，所以一律不要用** —— 講「匯出」或「歸檔」。本需求的兩次 metadata **都在歸檔流程裡**。
+- **決定的做法（兩次 metadata，都在歸檔流程裡）**：
+
+  | 時機 | 角色 |
+  |---|---|
+  | **上傳到 ArchiveCache 時**給一次 | **災難備援** —— 萬一 PACS／DB 整個沒了，archive 手上這份自己就能還原 |
+  | **整個 study 歸檔成一份之前**，再跟 PACS 要一次 | **正常來源，優先用** —— PACS 活著時它的值一定比當初的快照新（中間可能又校正或 QC 過） |
+
+- **取用規則：優先用第二次拿到的；沒拿到才退回用備援那份。**
+- **兩份都要留**，第二次不覆蓋第一次。
+- **既有的東西**：DB 已經有 `ARC_MAIN`（含 `CACHE_PATH`，對應 ArchiveCache 的概念）、`ARC_LOCATION`、`ARC_MEDIA`，以及 `archive_compress`／`archive_offline`／`archive_update_media`／`archive_update_study` 等九支 proc。要先盤點哪些沿用、哪些要換成對接 HD-Archive。
+- **待確認**：
+  - metadata 的形狀：整份 `DATASET` jsonb，還是挑欄位？
+  - 粒度：每張影像一份，還是整個 study 一份？會影響 CAS 去重效果與 `/by-key` 視圖怎麼定位。
+  - **上傳時拿不到 metadata 要不要擋住上傳？** 不擋的話那筆就沒有備援，而備援正是整條需求的目的。
+  - metadata 要不要納入 WORM？它會被第二次更新，而 WORM 的語意是不可覆寫 —— 可能要做成「多版本、各自不可變」而不是覆寫。
+  - **備援那份的新鮮度**：如果「上傳」到「歸檔成一份」之間隔了很久，而中間又發生校正或 QC，那備援存的就是過期的值。第二次拿得到時沒差（優先用新的），但**正是 PACS 掛掉、只能用備援的那個時候，它是舊的**。要不要在上傳與歸檔之間再刷新？還是把上傳與歸檔的間隔壓短就夠？
 - **與既有決策的關係**：[media-export-redesign](media-export-redesign.md) 第 7 節記的「archive 流程淘汰」，範圍**只是「新的 export／打包流程裡不放 archive」** —— 那個用途不納入新的 `PACKAGE_JOB` 設計、不遷移，`archiveItems`（打包前先從 nearline 撈回檔案）也一併退場。**它跟 archive 功能本身無關，更不是在講 HD-Archive。** 兩件事各自獨立，不要當成因果。
 
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
