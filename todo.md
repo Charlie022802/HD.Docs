@@ -186,9 +186,25 @@
     這件事不成立的話整個打包策略要重來（得改 framework-dependent + 逐院裝 runtime）。
   - **監聽埠 8080 → 5100**：8080 是醫院既有的 hd-web-server 在用，viewerapi 要同機共存
     就不能搶。5100 與 DicomWeb 5080、Export 5090、AdminConsole 5200 同一段。
-  - 下一步：編兩台的 `appsettings.json`（`Database` 與 `ImageBackend` **必須成對**，
-    配錯的症狀是「查得到、開不了片」），然後在一台 Windows 設 `ApiBaseUrl` 跑完整一輪：
-    登入→查詢→開片→縮圖列→QC→登出。
+  - **2026-08-25 兩條路都已在真機端到端驗過（伺服器端）**：同一支 viewerapi、同一組 API，
+    只有設定不同——這正是「兼容新舊系統」要的形狀。
+    | | `.163`（舊系統） | `.199`（新系統） |
+    |---|---|---|
+    | DB | 本機 `127.0.0.1` | `.191` |
+    | 影像 | `legacy` → hd-web-server **:80** | `dicomweb` → `:5080` |
+    | 縮圖實測 | 512×512 / 27KB | 128×96 / 2.3KB |
+    - `legacy` 那條路**兩個從沒驗過的假設同時成立**：服務帳號登入只發生一次（cookie 有黏住，
+      自帶 `CookieContainer` 是對的）、wado-uri 直接 200 沒走到「400 當未登入」的重試分支。
+    - **`type=thumbnail` 在 legacy 回的是全尺寸預轉 JPEG**（舊系統沒有縮圖端點，Jpeg 與
+      Thumbnail 同一張），這是刻意的、行為與改造前一致。也解釋了縮圖列的效能數字：
+      舊系統那 8.8s 是在搬 300 張全尺寸 JPEG。
+    - `.163` 的 hd-web-server 在 **port 80**，不是 8080。「8080 被 hd-web-server 佔著」
+      這個當初改埠的理由在 .163 不成立（改 5100 本身仍然對）——**若別處記得是 8080，
+      要確認是不是不同版本或前面掛了 nginx**，別把錯的認知帶去下一間醫院。
+  - **還沒發生的事：真的 Viewer 走一次。** 到目前為止全是 curl。
+    在一台 Windows 的 `localconfig.json` 加 `"ApiBaseUrl": "http://<主機>:5100"`，
+    跑完整一輪：登入→查詢→開片→縮圖列→QC→登出。有值＝走 API，留空＝維持直連 DB，
+    **這個開關就是新舊並存機制本身**，所以同時也在驗「沒設的機器完全不受影響」。
 - [x] **hdctl／hdpack：self-contained 元件踩出的四顆坑（2026-08-25 全修完）** ——
   `viewerapi` 是**第一個 self-contained 元件**（exec 是二進位本身，不是 `dotnet app/xxx.dll`），
   而既有機制全是為後者寫的，所以四顆坑其實是同一個根源。真醫院主機才會暴露：
