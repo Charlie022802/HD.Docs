@@ -287,14 +287,30 @@
     DicomWeb QIDO 與 Export `/export/packages` 都 200。
   - UI 字串裡的 domain **直接拿掉**（→「將導向 SSO 進行驗證」）：resx 的 key 本身含 domain，
     換一次要動三個語系的 key 與 value，而介面文字寫死基礎設施主機名注定會再爛一次。
-- [ ] **AdminConsole／DicomWeb 的 `Keycloak:Authority` 應比照 Export 改從 env 讀** —— 2026-08-25。
-  今天換 domain，**Export 的 repo 一個字都不用改**，因為它當初就把 Authority 當「機器相關設定」
-  放進 `/etc/hd-export/keycloak.env`（appsettings 裡留空）。AdminConsole 與 DicomWeb 寫死在
-  `appsettings.json`，所以要改程式碼、改 current、改舊 release，UI 字串還要重新部署才會跟上。
-  - **這不是潔癖，是必然**：已定案「各醫院會在封閉網路內自建 Keycloak」（見 identity.md），
-    到那時**每一間醫院的 Authority 都不一樣**，寫死在 appsettings 根本行不通。
-  - 判準可以直接沿用 Export 的註解：「凡是『現在只有一個值，是因為現在只有一套環境』的設定
-    都該進 env」（deployment.md 也寫了同一句）。
+- [x] **AdminConsole／DicomWeb 的 `Keycloak:Authority` 改從 env 讀（2026-08-25 完成，待部署）**
+  起因：換 domain 時 **HD.Export 的 repo 一個字都不用改**，因為它當初就把 Authority 當
+  「機器相關設定」放進 `/etc/hd-export/keycloak.env`。這兩支寫死在 `appsettings.json`，
+  結果要改程式碼＋改 current＋改舊 release，UI 字串還要重新部署才跟得上。
+  而各醫院自建院內 Keycloak 已定案，到時每間的 Authority 都不一樣，寫死行不通。
+  - HD.AdminConsole `227771b`（alpha.5）、HD.Pacs.DicomWeb `620605e`（alpha.6）。
+  - **兩支的處理刻意不同**：DicomWeb 與 Export 同性質，留空＝不啟用 JWT、只收 API Key，
+    服務照常跑；**AdminConsole 的唯一入口就是 OIDC**，留空等於沒人進得來，所以加了守衛讓它
+    **啟動就失敗**。不擋的話症狀是「服務 active、健檢過、但一按登入就 500」——
+    `AddOpenIdConnect` 會把 MetadataAddress 組成 `/.well-known/openid-configuration`
+    （不是合法 URL），首次解析 options 才丟例外。啟動就死掉好排查得多。
+  - **部署前提已備妥**：`.191` 的 `/etc/hd-admin-console/keycloak.env`、
+    `.199` 的 `/etc/hd-pacs-dicomweb/keycloak.env` 都已建立（640）。
+    **但現在跑著的 unit 還沒引用它們**——unit 的 `EnvironmentFile` 是 install 時照 manifest
+    寫進去的，要等下次部署新版才生效。所以現在零風險，機器照舊跑。
+  - 還沒搬的：`ClientId` / `Audience` 仍在 appsettings（值是對的）。要一併搬就照 Export
+    那份 env 的格式。
+- [x] **hdctl 0.2.5：退版時把現行設定帶到目標版（2026-08-25，`afa431b`）**
+  `do_rollback` 原本完全沒碰 `preserve`，目標 release 用的是它**當初被安裝時**那份設定。
+  設定是**機器狀態**不是版本狀態——DB 密碼、SSO 位址、影像後端屬於這台機器，跟跑哪一版無關。
+  - 實案：換 domain 改了 current 的 appsettings，舊 release 裡還是舊 domain。那時若退版，
+    登入會立刻壞掉，而症狀看起來像「退版沒解決問題」——最不該在退版當下遇到的那種誤導。
+  - 目標版原本那份留成 `.pre-rollback`。`preserve` 清單取兩版聯集（新版可能多列了目標版
+    不知道的檔案）。**這版還沒佈到機器上**，三台目前是 0.2.4。
 - [ ] **Viewer QC 的定位待重新釐清（先擱著，不要往任何方向推進）** —— 2026-08-25。
   Viewer 內建的 QC 是**單機 Viewer 時代的產物**，現在只有少數幾間醫院還在用；
   大部分 QC 是去 AdminTool 網頁做的。使用者要的是**重新整理這塊的定位**——
