@@ -231,6 +231,46 @@
 - [x] **`pack-viewerapi.sh`（2026-08-25）** —— `dotnet publish` 會把開發機的
   `appsettings.json`（**含本機 DB 密碼**）一起帶進包裡。先前是手工洗掉的，這種步驟下次一定忘。
   腳本改成自動用 `appsettings.template.json` 覆蓋，並回頭驗包裡確實是 `CHANGE_ME`，不是就中止。
+- [ ] **`insert_study_job` 的 NEARLINE_BACKUP gate 也信 `IS_NEARLINE_CACHED`（併下次正式更新）** ——
+  2026-08-25 由使用者發現。
+  ```sql
+  ELSEIF job_type = 'NEARLINE_BACKUP' THEN
+      ...
+      IF (SELECT "IS_NEARLINE_CACHED" FROM public."RC_STUDY" WHERE "STUDY_REF" = study_ref) THEN
+          RAISE NOTICE 'Already backup to nearline!';
+          RETURN;        -- 旗標錯了就不會排備份
+      END IF;
+  ```
+  - **跟 2026-08 若瑟掉資料是同一個根源**：舊的 `get_next_delete_study` 也信這個旗標。
+    一個負責「不備份」、一個負責「刪掉」，兩者共用同一個競態窗口。
+  - **但嚴重度差一個量級**，別混為一談：
+
+    | | 窗口內發生什麼 | 後果 |
+    |---|---|---|
+    | 舊 `get_next_delete_study`（已修） | 刪掉沒備份的物件 | **不可逆，資料沒了** |
+    | `insert_study_job` 的 gate | 跳過這次備份排程 | 可回復（重算成 false 後下次觸發會補排） |
+
+  - **旗標本身是重算出來的**，不是長期漂移：`update_study_statistical_info` 直接數
+    `RC_OBJECT JOIN RC_LOCATION WHERE NEARLINE_VOLUME_REF IS NOT NULL` 來設 true/false。
+    所以靜止狀態是準的——2026-08-25 在若瑟實測「旗標說有、實際沒有」的檢查數是 **0**。
+    真正的失效是**競態**：新物件進來之後、重算跑之前那段窗口，旗標還是舊的 true。
+    若瑟那次正是 NONDICOM 重送把物件加進既有檢查，窗口內自動刪除跑了。
+  - **這個 gate 從 2.0.1 就存在**，`insert_study_job` 改過六次（2.0.1/8/12/14/15/20）
+    都沒碰它；`.191` 的 2.0.37 也一字不差。所以**不是版本落差，是從沒被回頭看過的原始設計**。
+    旁邊的 `ARCHIVE_UPLOAD` 信 `IS_ARCHIVE_CACHED` 是同一個形狀，一起看。
+  - **刻意不單獨 hotfix**：`get_next_delete_study` 是刪除的最後一道關卡、單獨補風險可控；
+    `insert_study_job` 是進檔流程主幹（STUDY_CLOSE / ROUTE / ARCHIVE 全走它），
+    在生產醫院單獨換掉的回報小於風險。併進下一次正式版本更新一起評估。
+- [ ] **若瑟（.148）DB 是 2.0.22，要規劃升到 2.0.27 以上** —— 2026-08-25。
+  - **已做的緊急處置**：把 2.0.27 的 `get_next_delete_study` 單獨補上去（hotfix 在
+    `Database/HDPACS/hotfix/`，HDPACS-DB `d82561b`）。**刻意不動版本號**，跑完 DB 仍回報
+    2.0.22——這是明知故犯的偏離，日後正式跑 2.0.27 會再 `CREATE OR REPLACE` 同一支，結果一致。
+    實機驗過：函式 md5 `bc9350e7…` → `1847728f…`，版本號維持 2.0.22。
+  - **還沒做的**：正式升到 2.0.27。2.0.23~2.0.26 各有近 5000 行且動到**進檔主幹**
+    （`store_dicom` / `insert_dicom_info` / `get_next_map_job` / `get_object_path` /
+    `get_mwl_view`），舊版 PACS 服務的相容性要另外評估——當時是「掉資料的風險等不了那個評估」
+    才先單獨補。
+  - `.163`（若瑟形態的測試床）是 2.0.26，可以拿來當升級預演的環境。
 - [ ] **Viewer QC 的定位待重新釐清（先擱著，不要往任何方向推進）** —— 2026-08-25。
   Viewer 內建的 QC 是**單機 Viewer 時代的產物**，現在只有少數幾間醫院還在用；
   大部分 QC 是去 AdminTool 網頁做的。使用者要的是**重新整理這塊的定位**——

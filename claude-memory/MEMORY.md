@@ -28,6 +28,7 @@
 - [MPR 3D VTK](project_mpr_vtk.md) — 2D + 3D both DONE; 3D via OpenTK.GLControl 4.0.2 (GLSL raymarch, replaces old Activiz); DPI locked unaware; maximize on cursor screen; TransitionOverlay for progress; volume excludes LOCALIZER
 - [DPI mode](reference_dpi_mode.md) — app uses default SystemAware, no explicit HighDpiMode; runtime-added controls must self-scale by DeviceDpi (see AppHeaderBar)
 - [PACS DB schema](reference_pacs_db_schema.md) — DB schema SQL at D:\Dev\HyperDigital\Database\ (latest: HDPACS_20260811.sql,自 .191 拉);要動 DB 前若 dump 可能過時,主動請使用者重拉
+- [nearline 旗標競態](project_nearline_flag_race.md) — IS_NEARLINE_CACHED 是重算的(靜止時準),失效是**競態**:新物件到重算之間旗標還是舊 true;刪除那端 2.0.27 已修、insert_study_job 那端未修(從 2.0.1 就在、六次改動沒碰過)
 - [StudyClose flow](project_studyclose_flow.md) — STUDY_CLOSE map job (C# StudyClosedService rewrites files) → study_closed() DB proc fans out route/archive/callback/nearline;先改檔後扇出
 - [Shared logging](project_shared_logging.md) — HD.Shared.Logging 共用包(Serilog→HawkLog, CLEF+durable+自製 NDJSON formatter 避 v9 陣列坑)已建好+測過;各產品專案參考接入,pilot 未定;稽核走各自 DB 正本不走 HawkLog(無去重)
 - [版本雙來源](reference_version_two_sources.md) — hdctl 元件的版本號有 manifest 與 csproj 兩份,只改一邊會讓 `/health` 說謊(而它正是自動退版的依據);hdpack 已加護欄擋住
