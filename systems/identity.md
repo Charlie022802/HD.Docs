@@ -8,7 +8,7 @@
 
 ## Viewer 切 Keycloak（2026-08-17 決策：雙軌，提前實作、不替換）
 
-**背景**：醫院多為封閉網路，連不到外部的 `sso.ltcd.tw` —— 看片端跑在醫師個人電腦、連的是醫院內部主機，
+**背景**：醫院多為封閉網路，連不到外部的 `sso.hdtech.tw` —— 看片端跑在醫師個人電腦、連的是醫院內部主機，
 登入若要繞出去打 Keycloak，封閉網路的醫院會直接登不進去看片。
 
 **方向**：**之後會在各醫院封閉網路內部自建 Keycloak SSO**（尚未架設）。所以：
@@ -32,7 +32,7 @@
 2. `MapInboundClaims=false` 必關（否則 sub/email 變長 URI）。
 3. http 站台：correlation/nonce cookie `SameAsRequest`+`Lax`（預設 Secure 被拒收）。
 4. http 站台：`ResponseMode=Query`（預設 form_post 被 Chrome 攔且不帶 cookie）。
-5. `PushedAuthorizationBehavior.Disable`（sso.ltcd.tw 的 PAR 路徑 502）。
+5. `PushedAuthorizationBehavior.Disable`（sso.hdtech.tw 的 PAR 路徑 502）。
 6. **`SaveTokens=true` 必開**——RP-initiated 登出要 `id_token_hint`，沒存會被 Keycloak 拒（Missing parameters）。
 7. **`DefaultChallengeScheme` 別設 OIDC**——未登入開受保護頁會跳過自家登入卡直彈 Keycloak；讓 cookie 預設 challenge 導 LoginPath，OIDC 只由 login 端點明確 Challenge。
 8. Keycloak client 的 **Valid post logout redirect URIs 設 `+`**（沿用 redirect URIs 清單）。
@@ -41,7 +41,7 @@
      （access+id+refresh 分塊 Set-Cookie 近 10KB）→ `upstream sent too big header` → **502 頁署名自家 nginx**。
      症狀特徵：**直連 app port 正常、走反代固定 502**。修＝conf 加
      `proxy_buffer_size 32k; proxy_buffers 8 32k; proxy_busy_buffers_size 64k;`（已入 deploy/nginx/hdpacs-tls.conf）。
-   - **sso.ltcd.tw 前的 openresty**：`KEYCLOAK_IDENTITY` 隨 claims 長大＋`KC_RESTART` 含整串 state，cookie 疊厚後
+   - **sso.hdtech.tw 前的 openresty**：`KEYCLOAK_IDENTITY` 隨 claims 長大＋`KC_RESTART` 含整串 state，cookie 疊厚後
      也會 502（**坑 5 的 PAR 502 同根因**；清 sso cookie 可暫解）。已由同事加
      `proxy_buffer_size 16k; proxy_buffers 8 16k; proxy_busy_buffers_size 32k; large_client_header_buffers 4 32k;`。
    - 除錯要訣：**看 502 頁的署名（nginx vs openresty）＋DevTools 看是哪個網址 502**，才知道是哪一台反代在擋。
@@ -51,8 +51,8 @@
 - **機器 → API Key**（`hdp_…`）：儀器／Export／程式的長期憑證，各服務算 hash 查 `HD_API_KEY`。管理面集中到 [HD 管理主控台](admin-console.md)。
 
 ## Keycloak 實測（同事已建置）
-- **token 端點**：`POST https://sso.ltcd.tw/realms/hd/protocol/openid-connect/token`（測試用 password grant：client `hd-viewer`、scope `openid`）。
-- **issuer**：`https://sso.ltcd.tw/realms/hd`；**JWKS**：`.../protocol/openid-connect/certs`。.NET 用 `AddJwtBearer` 設 `Authority=issuer` 會自動抓 JWKS + 處理 kid 輪替，**別寫死公鑰**。
+- **token 端點**：`POST https://sso.hdtech.tw/realms/hd/protocol/openid-connect/token`（測試用 password grant：client `hd-viewer`、scope `openid`）。
+- **issuer**：`https://sso.hdtech.tw/realms/hd`；**JWKS**：`.../protocol/openid-connect/certs`。.NET 用 `AddJwtBearer` 設 `Authority=issuer` 會自動抓 JWKS + 處理 kid 輪替，**別寫死公鑰**。
 - **✅ audience 已解決（2026-08-06）**：在 realm `hd` 建 client scope `hd-api`（Default）+ Audience mapper（Included Custom Audience=`hd-pacs`、Add to access token=On），掛到 client。access token 的 `aud` 現在帶 `hd-pacs,account`。**嚴格 aud 驗證 live 測過**：`ValidateAudience=true` + `ValidAudiences=["hd-pacs"]` → 通過。→ HD.Shared.Auth 直接用嚴格 aud，不留過渡。
   - 專用測試 client：**`hd-pacs-client`**（public、Direct access grants On）；新 client 只要掛 `hd-api` scope 就有 aud。
 - **身分鍵**：用 `preferred_username`（→ `HD_USER.ID`）；**別用 email**（此 realm email 為 `@example.com` 佔位、`email_verified=false`）。建議註冊時順手存 `sub`（Keycloak UUID，永久）當將來的永久連結。

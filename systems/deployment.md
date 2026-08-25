@@ -50,7 +50,7 @@ options 就丟例外；而該 scheme 是預設 scheme、每個請求都會走認
 | 例子 | DB 連線字串、LoggingPlatform 位址與金鑰、Keycloak `Authority` | 日誌等級、`AllowedHosts`、各種行為預設 |
 
 `Keycloak.Authority` 屬於前者常被誤判：它看起來像固定值，但**各醫院之後會自建院內 Keycloak**，
-封閉網路連不到 `sso.ltcd.tw`。同理，凡是「現在只有一個值，是因為現在只有一套環境」的設定都該進 env。
+封閉網路連不到 `sso.hdtech.tw`。同理，凡是「現在只有一個值，是因為現在只有一套環境」的設定都該進 env。
 
 既有慣例本來就是這樣——`Database.ConnectionString` 與 `LoggingPlatform.IngestUrl` 在
 `appsettings.json` 裡都是**空字串**，實際值由 `/etc/hd-export/*.env` 提供。新設定照抄這個形狀即可。

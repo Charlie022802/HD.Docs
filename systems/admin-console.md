@@ -21,8 +21,8 @@
 ## http 站台 OIDC 三坑（2026-08-07 實戰，之後每個接 SSO 的 http 內網站都會踩）
 1. **correlation/nonce cookie 預設 Secure** → http 站台瀏覽器拒收 → Correlation failed（localhost 是特例測不出）。修：`SecurePolicy=SameAsRequest` + `SameSite=Lax`。
 2. **回跳預設 form_post** → https 的 Keycloak POST 到 http 本站，Chrome 攔「提交的資訊未受到保護」且跨站 POST 不帶 Lax cookie。修：`ResponseMode=query`。
-3. **.NET 9+ 自動用 PAR** → sso.ltcd.tw 的 PAR 路徑 502（一般 auth 參數路徑正常）。修：`PushedAuthorizationBehavior.Disable`。
-- 另：SSO 主機節點死掉時**帶舊 session cookie 的瀏覽器會穩定 502、無痕正常**（黏著 session 沒摘）→ 清 sso.ltcd.tw cookie 即恢復；症狀回報同事。
+3. **.NET 9+ 自動用 PAR** → sso.hdtech.tw 的 PAR 路徑 502（一般 auth 參數路徑正常）。修：`PushedAuthorizationBehavior.Disable`。
+- 另：SSO 主機節點死掉時**帶舊 session cookie 的瀏覽器會穩定 502、無痕正常**（黏著 session 沒摘）→ 清 sso.hdtech.tw cookie 即恢復；症狀回報同事。
 - 另：publish 產物預設會帶 `appsettings.Development.json`（含 DB 密碼）→ csproj `CopyToPublishDirectory=Never` 排除。
 
 ## 待辦
