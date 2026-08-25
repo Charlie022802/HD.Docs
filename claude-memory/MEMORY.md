@@ -15,7 +15,7 @@
 - [Versioning](project_versioning.md) — version set in src/Directory.Build.props (not AssemblyInfo.cs), currently 2.1.0
 - [License mechanism](project_license_mechanism.md) — deferred in net10 (internal login covers it for now); old mechanism location + how to redo (signature-based) if revisited
 - [Viewer Server](project_viewer_server.md) — **ViewerWebApi 架構定案(2026-08-17)**:看片端只對 ViewerWebApi+DicomWeb、不再直連 DB;Server 端 API 做完、客戶端只接 1 處剩 56 處;hdctl 獨立元件 `viewerapi`;第一鏟=診斷包上傳
-- [Viewer QC 定位](project_viewer_qc_position.md) — Viewer 內建 QC 是單機時代遺產、只剩幾間在用(大多走 AdminTool);**是準備退場而非待補**,但與「移除客戶端直連 DB」有硬相依
+- [Viewer QC 定位](project_viewer_qc_position.md) — 單機時代產物、只剩幾間在用(大多走 AdminTool);**定位待釐清,不是要退場也不要主動補**;與「移除客戶端直連 DB」有硬相依;tree 三層+Study 修改已驗
 - [NuGet 弱點](project_nuget_vulnerabilities.md) — REQ-017 **收尾:七個 repo 零弱點**;SSH.NET 是移除不是升版(在主PACS根本沒用、我原本記錯);Magick 升版靠三項實測放行;比像素不要比 PNG 檔案 SHA
 - [看片端診斷包](project_viewer_diagnostics.md) — REQ-016:log 全在醫師個人 PC 調閱不到;定案走 ViewerWebApi 傳到院內主機(非 DB);細流/粗流兩管道、Debug 不灌 LoggingPlatform;崩潰只留記號下次啟動才傳
 - [看片端安裝統一](project_viewer_install.md) — Inno Setup **已實作+實機驗證**(版本化目錄+current junction、三個安裝頁、退版);試裝抓到「Executer 開機自啟讀不到設定→連動全靜默死掉」;設定範本改 `.sample`、Host 留空

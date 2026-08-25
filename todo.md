@@ -231,17 +231,17 @@
 - [x] **`pack-viewerapi.sh`（2026-08-25）** —— `dotnet publish` 會把開發機的
   `appsettings.json`（**含本機 DB 密碼**）一起帶進包裡。先前是手工洗掉的，這種步驟下次一定忘。
   腳本改成自動用 `appsettings.template.json` 覆蓋，並回頭驗包裡確實是 `CHANGE_ME`，不是就中止。
-- [ ] **Viewer 的 QC 要不要留？——這是 ④ 的前置決策** —— 2026-08-25。
-  Viewer 內建的 QC 是**單機 Viewer 時代的產物，現在只有少數幾間醫院還在用**；
-  大部分 QC 是去 AdminTool 網頁做的。所以它不是「還沒補完的功能」，是**準備退場的功能**。
-  - 但它跟 ④ 有硬相依：`/api/v2.0/qc/*` 六個端點伺服器端已經寫好，**一次都沒被真的呼叫過**。
-    ④（移除客戶端 `SafePostgresConnection`）一旦做了，QC 就只剩 API 這條路——
-    沒驗過就上，那幾間醫院會在升級之後才發現壞掉。
-  - **A** ④ 之前補驗 QC（過渡；等於為一個要退役的功能付驗證成本）
-  - **B** ④ 先做、QC 保留直連 DB（那「客戶端不再持有 DB 密碼」就沒達成）
-  - **C** 那幾間改用 AdminTool、Viewer QC 退役（最乾淨）
-  - 依現況判斷 **C 是真正想去的方向**，A 只是過渡。動工前要先確認兩件事：
-    **AdminTool 的功能覆蓋度**、**那幾間到底是誰**。
+- [ ] **Viewer QC 的定位待重新釐清（先擱著，不要往任何方向推進）** —— 2026-08-25。
+  Viewer 內建的 QC 是**單機 Viewer 時代的產物**，現在只有少數幾間醫院還在用；
+  大部分 QC 是去 AdminTool 網頁做的。使用者要的是**重新整理這塊的定位**——
+  **不是要退場**，所以現在既不要主動補功能、也不要規劃退役。
+  - 已驗（2026-08-25 實測）：`qc/tree` 的 Study／Series／Image 三層、Study 修改
+    （`CALL viewer_station.qc`）。三層都有資料回來，順帶證實 `SelectJsonRows` 的修正是對的
+    （`get_qc_tree` 回 SETOF jsonb，原本用 `SelectJson` 只會拿到第一列）。
+  - 還沒驗：`qc/config`、`qc/transmit-jobs`、`qc/transmit-job`、`qc/exist-data`
+    ——其中「影像傳送」那兩支最值得補。
+  - **與 ④ 的相依仍在**：④（移除客戶端 `SafePostgresConnection`）一旦做了，QC 就只剩
+    API 這條路。定位沒定案之前，④ 不能把 QC 當成「反正要退役」而略過。
 - [x] **查詢分頁被 header 蓋住（2026-08-25 修掉）** —— `queryHeader.BringToFront()` 讓 header
   反而蓋掉分頁列。WinForms 停靠照 z-order 由後往前處理（索引最大的先停靠），`BringToFront`
   把 header 移到索引 0 變成最後才停靠，而 `Dock=Fill` 的 `tableLayoutQuery` 已經先把整個區域
