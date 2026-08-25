@@ -236,6 +236,70 @@ C-FIND 走 `query_dicom`(migration 修補 `prosrc`,在 `LOCKED = false` 那行�
 驗證方式見 [todo.md](todo.md) 的多院區章節:**斷言看的是 `MAP_JOB` 有沒有多出 CMOVE job,
 不是回應碼**——回應碼可能因為目的地連不上而失敗,只有「沒有 job」能證明是院區過濾擋下的。
 
+### DicomWeb QIDO/WADO(2026-08-25,`db_update_v2.0.34.sql` + `SiteScopeProvider`,已上 .199)
+
+DicomWeb 的呼叫端有兩種身分,所以 v2.0.34 把規則引擎抽出來,兩條路共用同一顆:
+
+| 函式 | 用途 |
+|---|---|
+| `site_scope_for_code(site_code, actor)` | **規則引擎(唯一正本)**,吃已解析出來的院區代碼 |
+| `site_query_scope(calling_ae)` | AE 這條路,改成薄殼(行為與 v2.0.33 逐字相同) |
+| `site_scope_for_user(user_id)` | 使用者這條路,讀 `HD_USER.OTHERS ->> 'siteCode'` |
+
+**使用者的院區存在 `HD_USER.OTHERS` 的 jsonb 裡**,比照 AE 存在 `AE_CONFIG` 的 jsonb,
+零 schema 改動。`user_id` 對應 `HD_USER."ID"`(＝Keycloak 的 `preferred_username`,
+各產品都用它查 HD_USER 補 scopes)。
+
+**身分判斷要用 `actor_type` claim,不能用「有沒有名字」**:金鑰身分的 `ClaimsIdentity`
+建構時 `nameType: "api_key_name"`,所以 `Identity.Name` 是**金鑰名稱**;拿它當使用者帳號
+去查 HD_USER 必然查無此人,結果是沒綁 AE 的金鑰什麼都看不到。同一個 `Name` 屬性在兩種
+身分下語意完全不同。
+
+**金鑰沒綁 AE ＝ 視為未歸戶**(2026-08-25 定案),與「AE 沒掛 siteCode」同一條規則。
+
+**WADO 的每個入口都要自己擋**,因為全是「拿 UID 直接取」、沒有 WHERE 可加——
+只過濾 QIDO 等於擋在「找得到」卻沒擋在「拿得到」。拒絕時回 404 不是 403,
+否則對方能靠狀態碼試探某筆存不存在。QIDO 則是四個查詢(study/count/series/instances)
+都要加條件,漏一個就是一條繞道。
+
+### DicomWeb 的 DELETE / UPS / STOW(2026-08-25,alpha.5)
+
+`DELETE` 與 `UPS` 已補上,`STOW` 查證後確認本來就正確(`insert_dicom_info` 依 calling AE
+蓋章,STOW 傳的是 header AE 或金鑰綁的 AE)。
+
+v2.0.35 另外加了兩支「**我自己是哪一個院區**」的查找,給建立資料時蓋章用:
+
+| 函式 | 回答 |
+|---|---|
+| `site_scope_for_*` | 看得到**哪些**(共用病歷號時是一群) |
+| `site_code_of_ae` / `site_code_of_user` | 我**是哪一個**(蓋章只能蓋一個) |
+
+**不能拿 scope 的 `codes[0]` 代替**——共用群組下 `codes` 有多筆,選第一個就是亂蓋。
+
+### Worklist(MWL):讀取端已做,寫入端待 WorklistInsert 案(2026-08-25,v2.0.36)
+
+`HDM_SERVICE_REQUEST` 加了 `SITE_CODE`,`query_worklist` 依 calling AE 的可見範圍過濾
+(規則同一支 `site_query_scope`;掛鉤本來就在——`WorklistDicomService` 已經傳
+`{aeTitle: CallingAETitle}`)。**改動全在 DB proc,不需要重新部署 PACS。**
+
+**⚠️ 讀取端是嚴格模式,而寫入端還沒蓋章。** `insert_worklist` 不知道呼叫者是誰
+(worklist 走 HTTP 不走 DICOM association),所以現有的單全是未歸戶:
+
+| 呼叫端 | 看得到 |
+|---|---|
+| AE 沒掛 siteCode | 未歸戶 → 與導入前相同 |
+| AE 掛了 siteCode | 同院區 → **目前等於什麼都看不到** |
+
+**在醫院／動物醫院啟用多院區之前,`SITE_CODE` 必須先寫得進去**,否則儀器拿不到排程。
+2026-08-25 確認接受這個順序(內部測試環境不受影響)。
+
+寫入端的三條路徑身分來源各不相同(動物醫院線在 URL `/hcs/<院號>`、UPS 線是呼叫者的
+院區、既有 HIS 線沒有身分),要跟 WorklistInsert 那個案子一起定。
+
+**注意 Worklist SCP 有自己的 AE 白名單 `HDM_AE_MAIN`**,與 PACS 的 `AE_MAIN` 是兩張表。
+`.191` 上它是空的,所以 MWL 目前拒絕所有連線——測試時要先登記(`HOST='0.0.0.0'`
+可跳過來源 IP 比對)。不知道這件事的話,「查不到」會被誤讀成過濾生效。
+
 ## 整院匯出／單院退場／誤刪防護(2026-08-18 定案)
 
 單一 DB 換來維護與設定串接的簡化,代價是**失去硬隔離**——原本「一院一 DB」時,交還一家醫院的資料就是 dump 一個 DB、清空一家就是 drop 一個 DB,而現在這兩件事都得自己建。現況盤點:`get_next_delete_study` 是**快取清理**(歸檔後釋放磁碟,`HD.CacheDelete` 在跑),不是退場;`RC_STUDY` 的外鍵**沒有 CASCADE**,逐層刪一直由應用層負責。也就是說整院匯出與退場目前**完全沒有機制**。

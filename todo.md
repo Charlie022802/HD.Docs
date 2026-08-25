@@ -18,7 +18,26 @@
   - **拒絕回一般的 `ProcessingFailure`**，不用專用拒絕碼，否則對方能靠回應碼試探 UID 存不存在。
   - 驗證：DB 層排練 34 項斷言（整份包在 tx 裡 ROLLBACK）＋**對 .191 發真的 DICOM 請求**——掛 BRANCH／未掛院區取 HQ 的 study 都**沒有建出 CMOVE job**，掛 HQ 才建得出來；C-FIND 為 HQ=2／BRANCH=0／未掛院區=62。**斷言看的是 job 有沒有被建立，不是回應碼**——回應碼可能因為目的地連不上而失敗，只有「沒有 job」能證明是院區過濾擋下的。
   - **注意：`.191` 的 `SITE` 表有 3 筆 fixture，所以那台的過濾現在是生效狀態**（沒掛院區的 AE 只看得到未歸戶）。要回到完全不過濾就把 `SITE` 清空。
-- [ ] **階段二（其餘出口）**：DicomWeb QIDO/WADO（生產走 HdPacs* Dapper 版）、Viewer（登入者帳號綁院區）、**RLS 第二道護欄**（RC_STUDY policy，同時是誤刪的第二道，pgbouncer 環境需 `SET LOCAL`）。規則沿用同一支 `site_query_scope`，不要各自實作。
+- [x] **階段二（DicomWeb QIDO/WADO）—— 完成並實機驗證（2026-08-25）**。DB＝`db_update_v2.0.34.sql`（**已套用 .191，DB 2.0.34**）：規則引擎抽成 `site_scope_for_code(code, actor)`，`site_query_scope(calling_ae)` 改為薄殼，新增 `site_scope_for_user(user_id)` 讀 `HD_USER.OTHERS ->> 'siteCode'`（比照 AE 存在 `AE_CONFIG` 的 jsonb，零 schema 改動）。程式＝`SiteScopeProvider`（Infrastructure/MultiSite）＋ QIDO 四個查詢加 WHERE、WADO 七個入口加閘門（**已部署 .199 `dicomweb 1.0.0-alpha.4`**）。
+  - **呼叫者身分兩條路**：API Key 走 `ae_title`（與 C-FIND/C-MOVE 同一支 `site_query_scope`）、Keycloak token 走 `site_scope_for_user`。**金鑰沒綁 AE ＝ 視為未歸戶**（使用者選定），不是放行——忘了設定不該變成後門。
+  - **WADO 一定要自己擋**：全是「拿 UID 直接取」，沒有 WHERE 可加。只過濾 QIDO 的話知道 UID 就取得走。拒絕回 404 不是 403，否則能靠狀態碼試探某筆存不存在。
+  - 驗證：DB 排練 16 項（含 `site_query_scope` 改寫後的回歸，拿改寫前的實際值比對）＋**對 .199 發真的 HTTP 請求** 10 項全過（QIDO study/series/instances、WADO metadata、無 AE 金鑰）。
+  - **踩到兩顆**：①PL/pgSQL 的 `SELECT ... INTO` 查無資料時會把**所有**目標設成 NULL（不是維持原值），自己帶的 `v_found` 旗標永遠不會是 false → 查無使用者默默變成「未歸戶」而非拒絕；要用 `FOUND`。②金鑰身分的 `Identity.Name` 是**金鑰名稱**（`nameType: "api_key_name"`），拿它當使用者帳號查 `HD_USER` 必然查無此人 → 沒綁 AE 的金鑰什麼都看不到；要用 `actor_type` 判斷身分類別。
+- [ ] **階段二（其餘出口）**：Viewer（登入者帳號綁院區——DB 那半已經好了，`site_scope_for_user` 直接可用）、**RLS 第二道護欄**（RC_STUDY policy，同時是誤刪的第二道，pgbouncer 環境需 `SET LOCAL`）。規則沿用同一支 `site_scope_for_code`，不要各自實作。
+- [x] **DicomWeb 其餘出口（DELETE / UPS / STOW）—— 完成並實機驗證（2026-08-25，`alpha.5`）**。DB＝`db_update_v2.0.35.sql`（`site_code_of_ae` / `site_code_of_user`，回答「我自己是哪一個院區」，蓋章用；**不能拿 scope 的 codes[0] 代替**，共用群組下那是亂選）＋ DicomWeb `db/migrations/007`（`UPS_WORKITEM.SITE_CODE`）。兩者**已套用 .191**（DB 2.0.35）。
+  - `DELETE`：三個層級都在解析 ref 之前擋，回 404。
+  - `UPS`：建立時蓋 `SITE_CODE`，搜尋加條件，其餘六個入口（取得/改狀態/修改/取消/訂閱/退訂）逐一擋。
+  - `STOW`：**查證後確認本來就正確，未改動**——`insert_dicom_info` 是階段一蓋章的四個點之一，依 calling AE 解析 siteCode 並帶跨院區同 UID 護欄；STOW 傳的是 header AE 或金鑰綁的 AE，未登記的 AE 本來就被拒。
+  - 驗證 13 項全過。**`DELETE` 只驗「被擋」不驗「放行」**——放行等於真的把 .191 的 study 排進刪除，而放行路徑與 QIDO/WADO 共用同一支 `CanAccessStudyAsync`，那輪已經驗過。斷言看的是「沒有排出 CACHE_DELETE job」＋「`IS_CACHED` 沒被動到」，不是只看回應碼。
+- [x] **Worklist（MWL）讀取端過濾 —— 完成並實機驗證（2026-08-25）**。`db_update_v2.0.36.sql`（**已套用 .191，DB 2.0.36**）：`HDM_SERVICE_REQUEST` 加 `SITE_CODE`（＋外鍵＋索引）＋修補 `query_worklist` 的 `prosrc`。規則沿用同一支 `site_query_scope`；掛鉤本來就在（`WorklistDicomService` 已經傳 `{aeTitle: CallingAETitle}`）。**改動全在 DB，不需要重新部署 PACS。**
+  - 驗證：排練 8 項（交易內 ROLLBACK）＋**對 .191 的 WorklistServer 發真的 MWL C-FIND** 5 項。
+  - **測試素材是自己建的**：`.191` 的 worklist 本來是空的，不建測試單的話每一項都是 0、全綠但什麼都沒驗到。
+  - **踩到一顆假綠燈**：第一次跑時 WorklistServer 回 `CallingAENotRecognized`（Worklist SCP 有自己的白名單 `HDM_AE_MAIN`，與 PACS 的 `AE_MAIN` 是兩張表，而 .191 上它是空的）。此時「BRANCH 應該看不到」那項回 0 而「通過」——但那是連線被拒，不是過濾生效。測試裡改成先登記測試 AE（`HOST='0.0.0.0'` 跳過 IP 比對）、測完移除。
+- [ ] **⚠️ Worklist 寫入端蓋章（上線前必做）** —— 讀取端已是**嚴格模式**（AE 掛了 siteCode 就只看得到同院區），但 `insert_worklist` 還沒有蓋章，所以現有的單全是未歸戶。**在醫院／動物醫院啟用多院區之前，`SITE_CODE` 必須先寫得進去，否則儀器會查不到任何排程**（2026-08-25 使用者確認接受此順序，內部測試環境不受影響）。
+  - `insert_worklist(template jsonb)` 不知道呼叫者是誰——worklist 走 HTTP 不走 DICOM association。三條寫入路徑的身分來源各不相同：動物醫院線（院區在 URL `/hcs/<院號>`，設計文件說靠 nginx 注入 header）、UPS 線（`GetOwnSiteCodeAsync` 拿得到）、既有 HIS 線（目前完全沒有身分）。要跟 WorklistInsert 那個案子一起定。
+  - **已知的不對稱**：UPS 建立 workitem 會橋接進 `insert_worklist`，所以 `UPS_WORKITEM` 有蓋章、連帶產生的 `HDM_SERVICE_REQUEST` 沒有。
+  - 既有 worklist 資料怎麼歸戶也要一併決定。
+- [ ] 管理 UI 要能設定使用者的院區（`HD_USER.OTHERS.siteCode`），目前只能手改 DB。
 - [ ] Site 功能完善：管理 UI 的院區 CRU（**不含 D**——只停用不刪除，見設計正本「院區的生命週期」）、AE 掛院區的介面、未歸戶 study 的認領流程。
 - [ ] QIDO/WADO 依呼叫者院區過濾＋PostgreSQL RLS 護欄。
 - [ ] 新版 DicomWebViewer：院區顯示（順帶 Keycloak＋i18n 一起上）。
