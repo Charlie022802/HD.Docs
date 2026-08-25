@@ -231,6 +231,41 @@
 - [x] **`pack-viewerapi.sh`（2026-08-25）** —— `dotnet publish` 會把開發機的
   `appsettings.json`（**含本機 DB 密碼**）一起帶進包裡。先前是手工洗掉的，這種步驟下次一定忘。
   腳本改成自動用 `appsettings.template.json` 覆蓋，並回頭驗包裡確實是 `CHANGE_ME`，不是就中止。
+- [ ] **MR 動態指示（DynamicView）改用 DICOM 標籤判斷，不要只看幾何** —— 2026-08-25 討論。
+  現況（`ImageControl.cs` 的 `backgroundWorkerUpdateDynimacView_DoWork`）：只對 `Modality == "MR"`，
+  等整個序列下載完，拿目前這張的 `ImagePlane` 掃過全序列，**平行（0.5 度容差）且
+  `PositionPatientCenterOfImage` 相同**就算同一位置；符合的張數＝重複次數，
+  自己在其中的序號＝第幾次（靠 SOP UID 比對）。`> 1` 才畫指示點。
+  觸發點是 `LoadImage`，不是點擊——按左右鍵換影像時跟著重算，所以看起來像按鍵觸發。
+  - **弱點①：分不出維度是什麼。** 雙回波（in/opposed phase、Dixon）、動態分期、真的重複掃，
+    在畫面上長得一模一樣都是「2 個點」，但臨床意義完全不同。
+    2026-08-25 現場遇到「Instance 1,2 同平面、3,4 同平面」，那個形狀比較像**雙回波**而不是重複。
+  - **弱點②：張數不一致時指示點整個消失。** 計數是「目前這張所在的切面被掃過幾次」，
+    不是整個序列的次數。第一輪 10 張、第二輪 8 張的話，只有第一輪才有的那 2 張算出來是 1，
+    因為 `> 1` 才畫，所以捲到那裡指示點會不見（而不是顯示「這裡只有一次」）。
+  - **弱點③：位置比對幾乎沒有容差。** 平行判斷有 0.5 度容差，但位置走 `Vector3D` 的 `==`
+    → `ValueComparer.AreEqual` 是 **ULP 容差**，等同於「幾乎完全相等」。第二輪的
+    `ImagePositionPatient` 只要有一點點差（病人動了、機器重算定位），整組就配不起來。
+  - **改法**：先看標籤、沒有才退回幾何——`TemporalPositionIdentifier (0020,0100)`（動態第幾期）
+    → `EchoNumbers (0018,0086)`（第幾個回波）→ `AcquisitionNumber (0020,0012)` → 幾何。
+    這樣不只序號正確，畫面還能標出「第 2 期」或「第 2 回波」；用標籤分組也沒有「張數不一致
+    就消失」的問題。**動工前要先撈一批現場 MR 看這幾個標籤實際填了什麼**（有些機器不填）。
+  - 排序不是問題：`ObjectElements` 照 `get_study_elements` 的 `ORDER BY instance_number` 排，
+    「先掃完一輪再第二輪」與「同位置連續兩張」兩種排列，算出來的序號都有意義。
+    DICOM 本來就沒規定 Instance Number 的排列語意，兩種都合標準。
+- [ ] **`backgroundWorkerUpdateDynimacView_DoWork` 的 `while (true)` 是空轉忙碌等待** ——
+  等 `DownloadCount == ObjectElements.Count` 的迴圈裡沒有任何 sleep，序列下載完成前
+  整條執行緒 100% 吃一顆核心。更糟的是**下載永遠完不成就無限空轉**（失敗、或使用者換序列
+  讓條件不再成立），而外層有 `if (!IsBusy)` 守衛，那個 ImageControl 之後就再也不會更新。
+  巢狀 if 內也沒有出口，`seriesElement`／`objectElement` 變 null 一樣停不下來。
+  快網路 + 小序列看不出來，**慢網路 + 大序列 MR 正是最容易發作的組合**。
+- [ ] **`HD.WebApi` 的重試策略對 4xx/5xx 也照重試 5 次** —— `MaxRetryCount = 5`、
+  `RetryDelaySec = 2`，而 `!IsSuccessStatusCode` 是直接丟例外進重試迴圈。所以一個
+  伺服器端 30ms 就失敗的請求，客戶端要耗掉約 8 秒（5 次嘗試、4 段等待）。
+  2026-08-25 .163 實測：Mammo 的 hanging 查詢失敗時，切過去整個卡住好幾秒，
+  **現場會被感知成「系統很慢」而不是「有錯誤」，反而更難排查**。
+  合理的分法：連線層失敗（連不上／逾時）才重試；4xx 完全不重試；5xx 最多一次。
+  **這會動到 `HD.WebApi` 的共用行為，舊系統那條路也吃得到**，所以要一起評估。
 - [ ] **縮圖預熱（Viewer 換 DicomWeb 後端之後的冷啟成本）** —— 2026-08-25 實測：300 張的縮圖列，
   舊系統（預轉 JPEG）每次都是 8.8s，新系統冷啟 22.1s、**快取命中只要 1.6s**。也就是
   「第一次慢 2.5 倍、之後快 5.5 倍」。已把 `PreviewJpegLoader.MaxParallel` 4→8（+12%），
