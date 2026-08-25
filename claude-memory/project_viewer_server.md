@@ -35,3 +35,25 @@ metadata:
 **施工順序定案:診斷包上傳(REQ-016)先做,刻意排在 56 處遷移之前。** 它是這支服務上最獨立的一塊(不碰既有查詢、不改 stored proc、失敗只是少一份診斷資料),拿它當第一個真正上線的功能,先把「進每間醫院+hdctl 部署更新」走通;之後遷移就是往一台已在跑的服務加端點。詳 [[project_viewer_diagnostics]]。
 
 **WADO 不做**(屬 DICOMServer)。**尚未做=客戶端側**：客戶端要連兩個後端(app-server 走登入/查詢=新增 ApiBaseUrl；DICOMServer 走 WADO=現有 DownloadHost)→ 拆兩個 ViewerWebApiClient 實例；DicomQuery/SystemConfig/QualityControl 各方法改走 API(靜態 gateway 判斷 ApiBaseUrl 有設才啟用、否則維持直連 DB)。Blazor Users/Clients/Settings 頁、/config section-key、/account/login CSRF 待補。相關：[[project-license-mechanism]] [[project-versioning]]
+
+**2026-08-25 大幅推進(詳見 docs/systems/viewer.md,那是正本)：**
+
+- **需求定案**:同一版 Viewer 要能服務尚未升級主系統的醫院。實查後**新舊唯一的差異是影像取得**
+  (舊=hd-web-server WADO-URI、新=DicomWeb WADO-RS),其餘 24 個方法都是同一組 proc。
+  **相容性住在 ViewerWebApi**,不住在客戶端。
+- **計數修正**:先前寫的「56 處/86 處」是 CreateCommand 次數,不是 API 數量。實際是
+  **26 個公開方法**(DicomQuery 12/QualityControl 9/SystemConfig 5)。
+- **①②③ 已完成並 push**(HD.DicomImageViewer `480cc3f`):影像端點+legacy 後端、
+  加 dicomweb 後端(縮圖對到 /thumbnail)、其餘 25 個方法全部接上 ViewerApiGateway 分支。
+  ApiBaseUrl 留空仍走直連 DB,非破壞。
+- **④ 未做**:移除 SafePostgresConnection 與設定的 Database 區塊。**要等 ViewerWebApi
+  真的部署驗證過再做**,否則所有現場立刻不能用。
+- **檢查清單不能改走 QIDO**:viewer_station.search_study 回的 QueryResult 帶 StudyRef／
+  Status／HasICad／ICadScore,全是 DICOM 標準外的東西。這也是舊站當初沒用 QIDO 的原因。
+- **效能實測**:300 張縮圖列,舊系統每次 8.8s、新系統冷啟 22.1s、**快取命中 1.6s**。
+  第一次慢 2.5 倍、之後快 5.5 倍。MaxParallel 4→8。縮圖預熱已記待辦。
+- **順手修掉伺服器端既有 bug**:get_qc_tree／query_dicom 是 SETOF jsonb,controller 用
+  SelectJson(ExecuteScalar)**只拿第一列**。加了 PgProxy.SelectJsonRows。
+- **正在進行**:把 viewerapi 佈到 `.163`(醫院形態主機),卡在 hdctl 的三顆坑,見
+  [[project_hdctl_hospital_host]]。**第一次真的 Viewer 跑這條路還沒發生過**——
+  到目前為止全是 curl 與測試程式驗契約。

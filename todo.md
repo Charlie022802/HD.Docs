@@ -176,6 +176,19 @@
     **JPEG 縮圖外觀與速度**，預轉檔→即時渲染是唯一醫師看得到的差異）③ 接其餘 24 個方法
     ④ 移除 `SafePostgresConnection` 與設定的 `Database` 區塊——**這步才算真的達成不再直連 DB**。
   - 視訊已確認**不是缺口**：兩邊都不支援 DicomMpeg4（新系統不收、轉檔停用；舊版本來就沒有）。
+- [ ] **⏸ 進行中：把 `viewerapi` 佈到 `.163`（醫院形態主機）** —— 2026-08-25 卡在 hdctl 的坑。
+  Viewer 的 ①②③ 已完成並 push（`480cc3f`），但**第一次真的 Viewer 走這條路還沒發生過**，
+  到目前為止全是 curl 與測試程式驗契約。④（移除 `SafePostgresConnection`）**要等這次部署
+  驗證過再做**，否則所有現場立刻不能用。
+  - 包：`hd-viewerapi-0.1.0-alpha.1+20260825151523.tgz`（self-contained，47 MB）
+  - hdctl 三顆坑：①Python 3.6（已修）②`hdadmin` 不存在→`217/USER`（已修，改成自動建帳號）
+    ③**Windows 打的 tgz 沒有執行位元→`203/EXEC`（待修）**——修在 `hdctl.py` 解壓後
+    （約 line 494 `tf.extractall`）對每個 service 的 exec 取 argv[0]、相對路徑就 `chmod 0755`。
+    修在 hdctl 而非 hdpack，這樣已打好的包也能用。**hdctl 有兩處修改尚未 commit。**
+  - ③修好後還要驗：**self-contained 的 .NET 10 在 CentOS 7 的 glibc 上跑不跑得起來**
+    （若 `GLIBC_2.xx not found` 就得改 framework-dependent + 裝 runtime）。
+  - 裝好之後要編 `appsettings.json`（`Database` 與 `ImageBackend` 是 `CHANGE_ME` 佔位符），
+    然後在一台 Windows 設 `ApiBaseUrl` 跑完整一輪：登入→查詢→開片→縮圖列→QC→登出。
 - [ ] **縮圖預熱（Viewer 換 DicomWeb 後端之後的冷啟成本）** —— 2026-08-25 實測：300 張的縮圖列，
   舊系統（預轉 JPEG）每次都是 8.8s，新系統冷啟 22.1s、**快取命中只要 1.6s**。也就是
   「第一次慢 2.5 倍、之後快 5.5 倍」。已把 `PreviewJpegLoader.MaxParallel` 4→8（+12%），
