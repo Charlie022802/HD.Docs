@@ -284,7 +284,8 @@
     真正有鑑別力的是**拿 token 看 `iss` 與 `aud`**——`aud` 必須含 `hd-pacs`，
     因為 `Keycloak__ValidateAudience=true`，mapper 沒跟著搬的話 token 拿得到但 API 一律 401，
     而錯誤訊息不會說是 audience 的問題。實測 `iss` 新 domain、`aud=['hd-pacs','account']`，
-    DicomWeb QIDO 與 Export `/export/packages` 都 200。
+    DicomWeb QIDO 與 Export `/export/packages` 都 200。**瀏覽器 OIDC 導頁也驗過**
+    （`http://192.168.68.191:5200/` 登入正常）——那條驗的是 redirect URI，token 測試碰不到。
   - UI 字串裡的 domain **直接拿掉**（→「將導向 SSO 進行驗證」）：resx 的 key 本身含 domain，
     換一次要動三個語系的 key 與 value，而介面文字寫死基礎設施主機名注定會再爛一次。
 - [x] **AdminConsole／DicomWeb 的 `Keycloak:Authority` 改從 env 讀（2026-08-25 完成，待部署）**
