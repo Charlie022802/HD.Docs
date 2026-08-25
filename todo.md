@@ -271,6 +271,30 @@
     `get_mwl_view`），舊版 PACS 服務的相容性要另外評估——當時是「掉資料的風險等不了那個評估」
     才先單獨補。
   - `.163`（若瑟形態的測試床）是 2.0.26，可以拿來當升級預演的環境。
+- [x] **Keycloak domain 搬遷 sso.ltcd.tw → sso.hdtech.tw（2026-08-25 完成並驗證）**
+  - repo：HD.AdminConsole `760c633`、HD.Pacs.DicomWeb `bfcab68`、HD.Shared `2c383ba`、HD.Docs。
+  - 機器：`.191` 主控台、`.199` DicomWeb 的 `appsettings.json`（**current 與舊 release 都改**）、
+    `.199` 的 `/etc/hd-export/keycloak.env`；三支都重啟。`.163` 無關（只有 viewerapi）。
+  - **舊 release 的設定也要改**，否則 `hdctl rollback` 會退回舊 domain、登入立刻壞掉，
+    而症狀看起來像「退版沒解決問題」。`preserve` 只保護 current 那份往新版帶，
+    不會回頭更新舊 release 目錄——這是它的盲點。
+  - `data/access.db`（DicomWeb 的存取記錄 SQLite）裡也有舊 domain，**刻意不動**：
+    那是歷史紀錄不是設定，改了等於竄改稽核；而且對 SQLite 檔跑 sed 會直接毀掉它。
+  - 驗證（缺一不可）：`.well-known/openid-configuration` 200 只代表 realm 在；
+    真正有鑑別力的是**拿 token 看 `iss` 與 `aud`**——`aud` 必須含 `hd-pacs`，
+    因為 `Keycloak__ValidateAudience=true`，mapper 沒跟著搬的話 token 拿得到但 API 一律 401，
+    而錯誤訊息不會說是 audience 的問題。實測 `iss` 新 domain、`aud=['hd-pacs','account']`，
+    DicomWeb QIDO 與 Export `/export/packages` 都 200。
+  - UI 字串裡的 domain **直接拿掉**（→「將導向 SSO 進行驗證」）：resx 的 key 本身含 domain，
+    換一次要動三個語系的 key 與 value，而介面文字寫死基礎設施主機名注定會再爛一次。
+- [ ] **AdminConsole／DicomWeb 的 `Keycloak:Authority` 應比照 Export 改從 env 讀** —— 2026-08-25。
+  今天換 domain，**Export 的 repo 一個字都不用改**，因為它當初就把 Authority 當「機器相關設定」
+  放進 `/etc/hd-export/keycloak.env`（appsettings 裡留空）。AdminConsole 與 DicomWeb 寫死在
+  `appsettings.json`，所以要改程式碼、改 current、改舊 release，UI 字串還要重新部署才會跟上。
+  - **這不是潔癖，是必然**：已定案「各醫院會在封閉網路內自建 Keycloak」（見 identity.md），
+    到那時**每一間醫院的 Authority 都不一樣**，寫死在 appsettings 根本行不通。
+  - 判準可以直接沿用 Export 的註解：「凡是『現在只有一個值，是因為現在只有一套環境』的設定
+    都該進 env」（deployment.md 也寫了同一句）。
 - [ ] **Viewer QC 的定位待重新釐清（先擱著，不要往任何方向推進）** —— 2026-08-25。
   Viewer 內建的 QC 是**單機 Viewer 時代的產物**，現在只有少數幾間醫院還在用；
   大部分 QC 是去 AdminTool 網頁做的。使用者要的是**重新整理這塊的定位**——
