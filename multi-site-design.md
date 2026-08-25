@@ -209,6 +209,33 @@ RAISE EXCEPTION 的行為:C-STORE 端由 `DicomStoreProcess.HandleStorageError` 
 > **實作注意**:總開關要避免每次查詢都去數一次 `SITE`。建議在連線/請求層取一次
 > (例如啟動時讀 + 管理 UI 異動時失效),而不是塞進每個查詢的 WHERE 裡。
 
+### 實作結果(2026-08-25,`db_update_v2.0.33.sql` + `DicomPACSService.cs`,已上 .191)
+
+**PACS 的 C-FIND／C-MOVE 已完成並實機驗證。** 三支 DB 函式:
+
+| 函式 | 用途 |
+|---|---|
+| `site_query_scope(calling_ae)` | 可見範圍的**唯一正本**,回 jsonb(`enabled` / `mode` / `codes`) |
+| `site_can_access_study(calling_ae, study_ref)` | 單筆判定 |
+| `site_can_access(calling_ae, info_type, info_ref)` | Study/Series/Image 三層級,C-MOVE 實際呼叫這支 |
+
+C-FIND 走 `query_dicom`(migration 修補 `prosrc`,在 `LOCKED = false` 那行之後接院區條件,
+冪等且找不到錨點就中止)。C-MOVE 走 `DicomPACSService.cs`,在 `insert_job_queue` 之前擋。
+
+**上面那條「連線層取一次快取」的建議,實作時刻意沒有採納。** 快取失效的後果是
+**跨院區外洩**(旗標還說未啟用但資料已分院區),而 `SITE` 是一張幾十列的小表,
+`EXISTS` 的成本相對於後面的 study 查詢可以忽略。這個量級下正確性優先。
+日後若真的量到瓶頸再處理,屆時要一併想清楚失效路徑。
+
+**C-MOVE 原本完全沒有權限判斷**——三個層級都是「UID → ref → 直接插 job」。
+只過濾 C-FIND 的話,知道別院 StudyInstanceUID 的 AE 照樣搬得走。層級對應放在 DB
+而不是 C#,因為表在那裡,而且呼叫端只有一個進入點,不會有人只擋 Study 忘了擋 Image
+(那層最少用、最容易漏)。拒絕時回一般的 `ProcessingFailure`,不用專用拒絕碼,
+否則對方能靠回應碼試探 UID 存不存在。
+
+驗證方式見 [todo.md](todo.md) 的多院區章節:**斷言看的是 `MAP_JOB` 有沒有多出 CMOVE job,
+不是回應碼**——回應碼可能因為目的地連不上而失敗,只有「沒有 job」能證明是院區過濾擋下的。
+
 ## 整院匯出／單院退場／誤刪防護(2026-08-18 定案)
 
 單一 DB 換來維護與設定串接的簡化,代價是**失去硬隔離**——原本「一院一 DB」時,交還一家醫院的資料就是 dump 一個 DB、清空一家就是 drop 一個 DB,而現在這兩件事都得自己建。現況盤點:`get_next_delete_study` 是**快取清理**(歸檔後釋放磁碟,`HD.CacheDelete` 在跑),不是退場;`RC_STUDY` 的外鍵**沒有 CASCADE**,逐層刪一直由應用層負責。也就是說整院匯出與退場目前**完全沒有機制**。

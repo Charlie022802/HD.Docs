@@ -8,6 +8,8 @@ metadata:
   modified: 2026-08-17T16:48:58.610Z
 ---
 
+**🔑 `.191` 與 `.199` 都用 `hdadmin` 這個帳號 SSH 登入(不是 root,root 直登被擋)。上傳的元件包放 `~/` 就好,再 `sudo /usr/local/bin/hdctl install ~/hd-<元件>-<版>.tgz`(tgz 與 .tgz.sha256 兩個檔都要傳)。**
+
 **🔑 `.191` 現在 `pacs 2.0.11+20260818153626`(2026-08-18 連佈五次:2.0.8 進度回寫→2.0.9/2.0.10 加診斷 log→2.0.11 修 continue)。**
 
 **🔑 .191 現況(2026-08-17):pacs 元件已在 `2.0.6+20260817215344`**(當日連續佈兩次:2.0.5 帶媒體匯出 worker 新表支援+兩個 BaseDirectory 修正,2.0.6 修 JPEG 的 fo-dicom ImageManager 與「全失敗仍標 ready」)。**打包=`bash deploy/pack-pacs.sh /d/HD-Release/packages`**(Git Bash;它 publish 七個專案到各自子目錄再呼叫 hdpack)。版本改 `deploy/hdctl-manifest.json`(各專案 csproj 的 `<Version>` 混雜且與 manifest 不同步——2.0.4/2.0.5 都有,值得日後用 Directory.Build.props 統一)。安裝一次動七個服務故主 PACS 會短暫中斷;裝完 `sudo systemctl is-active` 七個都要 active。

@@ -13,7 +13,12 @@
 - [x] **WorklistSCP 轉發器優化（2026-08-10，HD.Animal `bdce2a7`，本機雙情境驗證）**：逐筆串流轉發（不再全收完才回）＋上游失敗/逾時回 ProcessingFailure（原本吞錯回空 Success，儀器分不出「失敗」與「沒單」）＋接上 Worklist.RequestTimeoutInMs（設定/WebController 有欄位但程式沒用）＋物種對照表驅動（行為不變；狗→Feline/貓→Canine 對調仍保留，待確認）。隨下次 .222 部署一起上。
 - [ ] ~~院區歸屬鏈（UserUUID/StowForwarder 版）~~ → **作廢（2026-08-11 Proxy 退役）**；歸屬改為 PACS 進檔蓋章，見上方 SITE_CODE 設計。舊 Proxy 各院 AE 清單仍是初始登記資料來源（AE→院區 匯入 AE_MAIN）。
 - [ ] 進檔蓋章：SITE_CODE＋病患複合身分（IssuerOfPatientID 概念；寫 DB 不改原始檔）。
-- [ ] **階段二：出口過濾**（2026-08-21 會議再次確認要推進）：C-FIND／C-MOVE 依 calling AE 的 `siteCode` 限制可見範圍。規則已定案——**`SITE` 表沒有資料＝多院區功能整個關閉、完全不過濾**（單一醫院零設定），啟用後 AE 掛 `siteCode = X` 就**只看得到 `SITE_CODE = X`**（刻意不是 `X OR NULL`，因為會先全部轉置好才開放）。`.191` 上留了 `HQ`／`BRANCH`／`OLDSITE` 三筆院區與測試 study 當現成 fixture。
+- [x] **階段二（PACS 部分）：C-FIND／C-MOVE 出口過濾 —— 完成並實機驗證（2026-08-25）**。DB＝`db_update_v2.0.33.sql`（**已套用 .191，DB 版本 2.0.33**）：`site_query_scope`（可見範圍的唯一正本）＋`site_can_access_study`＋`site_can_access`（Study/Series/Image 三層級）＋修補 `query_dicom` 的 `prosrc` 加院區 WHERE。C#＝`DicomPACSService.cs` 在插 job 前呼叫 `site_can_access`（**已部署 .191 `pacs 2.0.13+20260825100752`**）。
+  - **C-MOVE 是這次補起來的洞**：三個層級原本都是「UID → ref → 直接插 job」，沒有任何權限判斷。只過濾 C-FIND 的話，知道別院 StudyInstanceUID 的 AE 照樣搬得走——擋在「找得到」卻沒擋在「拿得到」。層級對應放在 DB（表在那裡）而不是 C#，呼叫端只有一個進入點，不會有人只擋 Study 忘了擋 Image。
+  - **拒絕回一般的 `ProcessingFailure`**，不用專用拒絕碼，否則對方能靠回應碼試探 UID 存不存在。
+  - 驗證：DB 層排練 34 項斷言（整份包在 tx 裡 ROLLBACK）＋**對 .191 發真的 DICOM 請求**——掛 BRANCH／未掛院區取 HQ 的 study 都**沒有建出 CMOVE job**，掛 HQ 才建得出來；C-FIND 為 HQ=2／BRANCH=0／未掛院區=62。**斷言看的是 job 有沒有被建立，不是回應碼**——回應碼可能因為目的地連不上而失敗，只有「沒有 job」能證明是院區過濾擋下的。
+  - **注意：`.191` 的 `SITE` 表有 3 筆 fixture，所以那台的過濾現在是生效狀態**（沒掛院區的 AE 只看得到未歸戶）。要回到完全不過濾就把 `SITE` 清空。
+- [ ] **階段二（其餘出口）**：DicomWeb QIDO/WADO（生產走 HdPacs* Dapper 版）、Viewer（登入者帳號綁院區）、**RLS 第二道護欄**（RC_STUDY policy，同時是誤刪的第二道，pgbouncer 環境需 `SET LOCAL`）。規則沿用同一支 `site_query_scope`，不要各自實作。
 - [ ] Site 功能完善：管理 UI 的院區 CRU（**不含 D**——只停用不刪除，見設計正本「院區的生命週期」）、AE 掛院區的介面、未歸戶 study 的認領流程。
 - [ ] QIDO/WADO 依呼叫者院區過濾＋PostgreSQL RLS 護欄。
 - [ ] 新版 DicomWebViewer：院區顯示（順帶 Keycloak＋i18n 一起上）。
