@@ -231,6 +231,23 @@
 - [x] **`pack-viewerapi.sh`（2026-08-25）** —— `dotnet publish` 會把開發機的
   `appsettings.json`（**含本機 DB 密碼**）一起帶進包裡。先前是手工洗掉的，這種步驟下次一定忘。
   腳本改成自動用 `appsettings.template.json` 覆蓋，並回頭驗包裡確實是 `CHANGE_ME`，不是就中止。
+- [ ] **Viewer 的 QC 要不要留？——這是 ④ 的前置決策** —— 2026-08-25。
+  Viewer 內建的 QC 是**單機 Viewer 時代的產物，現在只有少數幾間醫院還在用**；
+  大部分 QC 是去 AdminTool 網頁做的。所以它不是「還沒補完的功能」，是**準備退場的功能**。
+  - 但它跟 ④ 有硬相依：`/api/v2.0/qc/*` 六個端點伺服器端已經寫好，**一次都沒被真的呼叫過**。
+    ④（移除客戶端 `SafePostgresConnection`）一旦做了，QC 就只剩 API 這條路——
+    沒驗過就上，那幾間醫院會在升級之後才發現壞掉。
+  - **A** ④ 之前補驗 QC（過渡；等於為一個要退役的功能付驗證成本）
+  - **B** ④ 先做、QC 保留直連 DB（那「客戶端不再持有 DB 密碼」就沒達成）
+  - **C** 那幾間改用 AdminTool、Viewer QC 退役（最乾淨）
+  - 依現況判斷 **C 是真正想去的方向**，A 只是過渡。動工前要先確認兩件事：
+    **AdminTool 的功能覆蓋度**、**那幾間到底是誰**。
+- [x] **查詢分頁被 header 蓋住（2026-08-25 修掉）** —— `queryHeader.BringToFront()` 讓 header
+  反而蓋掉分頁列。WinForms 停靠照 z-order 由後往前處理（索引最大的先停靠），`BringToFront`
+  把 header 移到索引 0 變成最後才停靠，而 `Dock=Fill` 的 `tableLayoutQuery` 已經先把整個區域
+  吃光，header 只好疊上去。四個分頁（檢查查詢／查詢取回／影像傳送／品質管制）一直都有被建出來、
+  `Visible=true`、尺寸也正常——**只是整個被蓋住**，所以先前一直以為是改版時漏了 QC 頁面沒加回來。
+  教訓：「功能不見了」先量座標再下結論；`pages=4` 與螢幕座標重疊這兩個數字一出來就結案了。
 - [ ] **MR 動態指示（DynamicView）改用 DICOM 標籤判斷，不要只看幾何** —— 2026-08-25 討論。
   現況（`ImageControl.cs` 的 `backgroundWorkerUpdateDynimacView_DoWork`）：只對 `Modality == "MR"`，
   等整個序列下載完，拿目前這張的 `ImagePlane` 掃過全序列，**平行（0.5 度容差）且
