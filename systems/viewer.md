@@ -119,6 +119,43 @@ hd-web-server 的 `sendPartialMp4`（HTTP Range 分段）是網頁端用的，�
   且**與直接跟 hd-web-server 取的位元組 sha256 完全相同**——轉送沒有動到任何內容。
   第二次請求 121ms（cookie 重用，沒有重登）。
 
+### 施工進度：② dicomweb 後端（2026-08-25 完成，含效能實測）
+
+`DicomWebRsBackend`：`dicom` → `/instances/{uid}`（`Accept: application/dicom` 裸檔模式）、
+`jpeg` → `/rendered`、**`thumbnail` → `/thumbnail`**。三種都對 `.199` 實測過，
+`DICM` 與 `ffd8` 檔頭正確、裸檔模式生效（不是 multipart）。
+
+**縮圖改對到 `/thumbnail` 而不是 `/rendered`**：實測 4.5KB vs 134KB（小 30 倍），
+而縮圖列本來就只要小圖。客戶端由 `PreviewJpegLoader` 傳 `thumbnail: true` 區分；
+舊後端沒有縮圖概念，兩者都回同一張預轉檔，**行為不變**。
+
+#### 效能實測（每組 20 張冷啟、同一 study、各組不同 instance）
+
+| 並行度 | 舊：預轉 JPEG（45KB） | 新：`/thumbnail`（4.5KB） |
+|---|---|---|
+| 1 | 0.099s | 0.212s |
+| 4 | 0.029s | 0.074s |
+| 8 | 0.033s | 0.065s |
+| 16 | 0.025s | 0.055s |
+
+換算 300 張的縮圖列：
+
+| | 時間 |
+|---|---|
+| 舊：預轉 JPEG @4 | **8.8s**（每次都一樣） |
+| 新：冷啟 @4 / @8 / @16 | 22.1s / 19.4s / 16.4s |
+| **新：快取命中 @4** | **1.6s** |
+
+**結論：第一次慢 2.5 倍，之後快 5.5 倍。** 慢的是 CPU（解碼＋縮放＋編碼），不是網路
+——新的傳輸量只有舊的十分之一。加上 Viewer 本機還有磁碟快取，同一台 PC 只有第一次會慢。
+
+`PreviewJpegLoader.MaxParallel` **4 → 8**（+12%）。不用 16：客戶端並行度會乘上醫師人數
+壓到伺服器，20 位醫師同時開檢查就是 320 個併發渲染，收益遞減而風險是乘出來的。
+**真正的槓桿是快取命中率，不是這個常數。**
+
+**注意 `RenderedImageCache` 是 DicomWeb 行程內的記憶體快取，每次部署更新就會清空**
+——所以每次更新後第一批開檢查的醫師都會遇到冷啟。要避免得做成落地快取或預熱（見待辦）。
+
 **踩到的坑：hd-web-server 未登入回的是 400 不是 401。**
 它有全域 preHandler（`src/index.ts` 的 `authMiddleware`），非 app 路由的驗證失敗走
 `rep.badRequest()`。route 內的 `filterCheck` 只是額外的資源過濾，**不是驗證**——
