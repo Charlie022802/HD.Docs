@@ -23,7 +23,17 @@
   - **WADO 一定要自己擋**：全是「拿 UID 直接取」，沒有 WHERE 可加。只過濾 QIDO 的話知道 UID 就取得走。拒絕回 404 不是 403，否則能靠狀態碼試探某筆存不存在。
   - 驗證：DB 排練 16 項（含 `site_query_scope` 改寫後的回歸，拿改寫前的實際值比對）＋**對 .199 發真的 HTTP 請求** 10 項全過（QIDO study/series/instances、WADO metadata、無 AE 金鑰）。
   - **踩到兩顆**：①PL/pgSQL 的 `SELECT ... INTO` 查無資料時會把**所有**目標設成 NULL（不是維持原值），自己帶的 `v_found` 旗標永遠不會是 false → 查無使用者默默變成「未歸戶」而非拒絕；要用 `FOUND`。②金鑰身分的 `Identity.Name` 是**金鑰名稱**（`nameType: "api_key_name"`），拿它當使用者帳號查 `HD_USER` 必然查無此人 → 沒綁 AE 的金鑰什麼都看不到；要用 `actor_type` 判斷身分類別。
+- [x] **匯出／燒錄（HD.Export）—— 完成並實機驗證（2026-08-25，`alpha.15`）**。`db_update_v2.0.37.sql`（**已套用 .191，DB 2.0.37**）：`site_scope_for_actor(actor_type, actor_id)` 依身分類別分派 ＋ `export.create_package_job` 在選件展開後檢查。
+  - **擋在 proc 而不是 API**：選件有兩種模式（`studies[]` 的 UID、`patientId+accessionNumber` 的條件查詢），都在那支 proc 裡展開成 UID 清單——擋在展開之後兩種一次涵蓋，而且檢查與寫入同一個交易，沒有 TOCTOU。
+  - **整批拒絕而不是靜靜略過**：產物會離開系統（燒成光碟交給病患），少幾張而呼叫端不知道是臨床問題。訊息也不區分「不存在」與「別院的」，免得能拿來試探。
+  - 排練 14 項 ＋ 對 .199:5090 的實機 6 項。**排練第 0 項先量了「改造前 BRANCH 確實打包得到 HQ 的資料」**——洞是實證存在的，否則後面全部被拒也可能只是條件被寫死成 false。
 - [ ] **階段二（其餘出口）**：Viewer（登入者帳號綁院區——DB 那半已經好了，`site_scope_for_user` 直接可用）、**RLS 第二道護欄**（RC_STUDY policy，同時是誤刪的第二道，pgbouncer 環境需 `SET LOCAL`）。規則沿用同一支 `site_scope_for_code`，不要各自實作。
+- [ ] **其餘沒有院區概念的出口**（2026-08-25 盤點，實際查過）：
+  - **hd-web-server** —— 看片端影像的**實際來源**（`/api/v2.0/wado-uri`），零院區概念，且**不是我們的 repo**（同事維護），要跨團隊協調。
+  - **Viewer 直連 DB 的 56 處查詢** —— 完全繞過所有過濾，要等 ViewerWebApi 架構才有地方掛。
+  - **ROUTE / C-STORE 轉送** —— 路由規則沒有院區概念，可能把 A 院的片自動送到 B 院登記的目的地。
+  - **AdminConsole** —— 看得到全部。可能是刻意的（管理員本來就跨院區），但要確認而不是預設。
+  - **`delete_site_studies` 只存在於註解裡，還沒實作** —— v2.0.31 引用它解釋「為什麼停用院區要拒收」，但函式本身不存在。整院匯出工具也還沒有。
 - [x] **DicomWeb 其餘出口（DELETE / UPS / STOW）—— 完成並實機驗證（2026-08-25，`alpha.5`）**。DB＝`db_update_v2.0.35.sql`（`site_code_of_ae` / `site_code_of_user`，回答「我自己是哪一個院區」，蓋章用；**不能拿 scope 的 codes[0] 代替**，共用群組下那是亂選）＋ DicomWeb `db/migrations/007`（`UPS_WORKITEM.SITE_CODE`）。兩者**已套用 .191**（DB 2.0.35）。
   - `DELETE`：三個層級都在解析 ref 之前擋，回 404。
   - `UPS`：建立時蓋 `SITE_CODE`，搜尋加條件，其餘六個入口（取得/改狀態/修改/取消/訂閱/退訂）逐一擋。

@@ -296,7 +296,24 @@ v2.0.35 另外加了兩支「**我自己是哪一個院區**」的查找,給建�
 寫入端的三條路徑身分來源各不相同(動物醫院線在 URL `/hcs/<院號>`、UPS 線是呼叫者的
 院區、既有 HIS 線沒有身分),要跟 WorklistInsert 那個案子一起定。
 
-**注意 Worklist SCP 有自己的 AE 白名單 `HDM_AE_MAIN`**,與 PACS 的 `AE_MAIN` 是兩張表。
+### 匯出／燒錄(HD.Export,2026-08-25,v2.0.37 + alpha.15)
+
+`export.create_package_job` 在選件展開成 UID 清單之後檢查,含跨院區就**整批拒絕**。
+
+擋在 proc 而不是 API:選件有兩種模式(`studies[]` 的 UID、`patientId+accessionNumber`
+的條件查詢),都在那支 proc 裡展開,擋在展開之後兩種一次涵蓋,而且檢查與寫入同一個
+交易、沒有 TOCTOU。
+
+**整批拒絕而不是靜靜略過**:匯出的產物會離開系統——燒成光碟交給病患。少了幾張而
+呼叫端不知道是臨床問題,寧可整批失敗讓人重來。訊息也不區分「不存在」與「別院的」。
+
+`public.site_scope_for_actor(actor_type, actor_id)` 依身分類別分派(`user` 走
+`site_scope_for_user`,其餘走 `site_query_scope` 並把 actor_id 當 AE Title),
+規則本體仍在 `site_scope_for_code`。各產品的呼叫端身分不同,但規則只能有一套。
+
+### 注意:Worklist SCP 有自己的 AE 白名單
+
+**`HDM_AE_MAIN`**,與 PACS 的 `AE_MAIN` 是兩張表。
 `.191` 上它是空的,所以 MWL 目前拒絕所有連線——測試時要先登記(`HOST='0.0.0.0'`
 可跳過來源 IP 比對)。不知道這件事的話,「查不到」會被誤讀成過濾生效。
 
