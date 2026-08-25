@@ -176,19 +176,45 @@
     **JPEG 縮圖外觀與速度**，預轉檔→即時渲染是唯一醫師看得到的差異）③ 接其餘 24 個方法
     ④ 移除 `SafePostgresConnection` 與設定的 `Database` 區塊——**這步才算真的達成不再直連 DB**。
   - 視訊已確認**不是缺口**：兩邊都不支援 DicomMpeg4（新系統不收、轉檔停用；舊版本來就沒有）。
-- [ ] **⏸ 進行中：把 `viewerapi` 佈到 `.163`（醫院形態主機）** —— 2026-08-25 卡在 hdctl 的坑。
-  Viewer 的 ①②③ 已完成並 push（`480cc3f`），但**第一次真的 Viewer 走這條路還沒發生過**，
-  到目前為止全是 curl 與測試程式驗契約。④（移除 `SafePostgresConnection`）**要等這次部署
+- [ ] **⏸ 進行中：`viewerapi` 已佈上兩台，待設定與端到端驗證** —— 2026-08-25。
+  Viewer 的 ①②③ 已完成並 push，但**第一次真的 Viewer 走這條路還沒發生過**，
+  到目前為止全是 curl 與測試程式驗契約。④（移除 `SafePostgresConnection`）**要等端到端
   驗證過再做**，否則所有現場立刻不能用。
-  - 包：`hd-viewerapi-0.1.0-alpha.1+20260825151523.tgz`（self-contained，47 MB）
-  - hdctl 三顆坑：①Python 3.6（已修）②`hdadmin` 不存在→`217/USER`（已修，改成自動建帳號）
-    ③**Windows 打的 tgz 沒有執行位元→`203/EXEC`（待修）**——修在 `hdctl.py` 解壓後
-    （約 line 494 `tf.extractall`）對每個 service 的 exec 取 argv[0]、相對路徑就 `chmod 0755`。
-    修在 hdctl 而非 hdpack，這樣已打好的包也能用。**hdctl 有兩處修改尚未 commit。**
-  - ③修好後還要驗：**self-contained 的 .NET 10 在 CentOS 7 的 glibc 上跑不跑得起來**
-    （若 `GLIBC_2.xx not found` 就得改 framework-dependent + 裝 runtime）。
-  - 裝好之後要編 `appsettings.json`（`Database` 與 `ImageBackend` 是 `CHANGE_ME` 佔位符），
-    然後在一台 Windows 設 `ApiBaseUrl` 跑完整一輪：登入→查詢→開片→縮圖列→QC→登出。
+  - 現況：`.163`（CentOS 7，若瑟形態）與 `.199`（AlmaLinux，newdicomweb）都跑
+    `hd-viewerapi-0.1.0-alpha.3`，聽 **5100**，`/healthz` 正常。設定仍是 `CHANGE_ME`。
+  - **已驗到的關鍵事實：self-contained 的 .NET 10 在 CentOS 7 的 glibc 上跑得起來。**
+    這件事不成立的話整個打包策略要重來（得改 framework-dependent + 逐院裝 runtime）。
+  - **監聽埠 8080 → 5100**：8080 是醫院既有的 hd-web-server 在用，viewerapi 要同機共存
+    就不能搶。5100 與 DicomWeb 5080、Export 5090、AdminConsole 5200 同一段。
+  - 下一步：編兩台的 `appsettings.json`（`Database` 與 `ImageBackend` **必須成對**，
+    配錯的症狀是「查得到、開不了片」），然後在一台 Windows 設 `ApiBaseUrl` 跑完整一輪：
+    登入→查詢→開片→縮圖列→QC→登出。
+- [x] **hdctl／hdpack：self-contained 元件踩出的四顆坑（2026-08-25 全修完）** ——
+  `viewerapi` 是**第一個 self-contained 元件**（exec 是二進位本身，不是 `dotnet app/xxx.dll`），
+  而既有機制全是為後者寫的，所以四顆坑其實是同一個根源。真醫院主機才會暴露：
+  `.191`/`.199` 是我們自己養的機器，帳號早就有、Python 也新。
+  | 坑 | 症狀 | 為什麼半年來沒暴露 | 修在哪 |
+  |---|---|---|---|
+  | Python 3.6 | `add_subparsers(required=)` TypeError | 我們的機器 Python 都夠新 | hdctl 0.2.2 |
+  | `hdadmin` 不存在 | `217/USER`，unit 一直 activating、**表面看不出跟使用者有關** | 全新主機才沒有 | hdctl 0.2.2（自動建系統帳號） |
+  | 沒有執行位元 | `203/EXEC`（Windows 打的 tar 沒有 POSIX mode） | 被執行的是 dotnet，dll 不需要 x | hdctl 0.2.2（`ensure_exec_bits`） |
+  | SELinux `user_home_t` | `203/EXEC`，`avc: denied { execute } init_t → user_home_t` | dotnet 在 `/opt`（型別本來就對），`/home` 下的 dll 只被**讀取**——讀允許、執行不允許 | hdctl 0.2.3/0.2.4（`label_exec_selinux`） |
+  - **SELinux 那顆修法有兩個容易寫錯的地方**：①必須排在 `restorecon(comp_dir)` **之後**，
+    先 `chcon` 會被它洗掉；②要標 **`rel_dir`（新 release）而不是 `current`**——這個函式跑在
+    `flip_current` 之前，標 `current` 等於標了舊版、新版一個字都沒動（0.2.3 就是這樣白做一次）。
+    用 `semanage fcontext` 登記一條涵蓋所有版本的正規式規則（持久、全機 relabel 也還在），
+    再 `restorecon` 去套；`semanage` 不在才退用 `chcon`。
+  - 另外兩顆不是 hdctl 而是打包／版號：
+    - **hdpack 的「manifest 與組件版號一致」護欄對 self-contained 靜默失效**——它只認 exec
+      裡的 `.dll`，認不到就 `return`。已改成取 argv[0] 的檔名。
+    - **`InformationalVersion` 讓 `/healthz` 說謊**：`Directory.Build.props` 比 csproj 早匯入，
+      算 `InformationalVersion` 時 `$(Version)` 還是共用的 2.4.0，專案自己覆寫的 alpha 版號
+      還沒生效 → `/healthz` 回報看片端的 `2.4.0`。搬到 `Directory.Build.targets` 就對了。
+  - 教訓（**下次加任何元件層級的機制都要問一次**）：這些機制的隱含前提都是
+    「exec = `dotnet <dll>`」。護欄本身也會有這種前提，而護欄失效是**靜默的**。
+- [x] **`pack-viewerapi.sh`（2026-08-25）** —— `dotnet publish` 會把開發機的
+  `appsettings.json`（**含本機 DB 密碼**）一起帶進包裡。先前是手工洗掉的，這種步驟下次一定忘。
+  腳本改成自動用 `appsettings.template.json` 覆蓋，並回頭驗包裡確實是 `CHANGE_ME`，不是就中止。
 - [ ] **縮圖預熱（Viewer 換 DicomWeb 後端之後的冷啟成本）** —— 2026-08-25 實測：300 張的縮圖列，
   舊系統（預轉 JPEG）每次都是 8.8s，新系統冷啟 22.1s、**快取命中只要 1.6s**。也就是
   「第一次慢 2.5 倍、之後快 5.5 倍」。已把 `PreviewJpegLoader.MaxParallel` 4→8（+12%），
