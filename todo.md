@@ -162,7 +162,23 @@
 實查現況：Server 端五個 controller（Auth/Query/KeyImage/Config/QC）已完成；**客戶端只有 1 處走 API、其餘 56 處仍直連 DB**（DicomQuery 26／QualityControl 17／SystemConfig 11／AccessDefinition 2）。詳 [systems/viewer.md](systems/viewer.md)。
 - [x] **看片端診斷包 — 本機版完成（2026-08-17，趕在 8/18 裝機前）**：「匯出診斷包」按鈕（關於視窗）＋事故標記（未處理例外／不正常結束偵測）。**只寫本機檔案、不碰網路、不碰登入流程**，所以不必重跑 2.4.0 的完整驗證。三支共用 log 目錄 ⇒ 自動涵蓋 Executer 紀錄。已重新打包 `2.4.0+20260817-121900+0800`。詳 [backlog.md](backlog.md) REQ-016。
 - [ ] **第一鏟＝診斷包上傳端點（REQ-016 第二階段）＋ hdctl `viewerapi` 元件**。刻意排在 56 處遷移**之前**：它不碰既有查詢、不改 stored proc、失敗只是少一份診斷資料，適合拿來把「進每間醫院＋hdctl 部署更新」這條路走通。打包邏輯已就緒，屆時只是多一個出口。
-- [ ] 客戶端側 56 處改走 API（登入/查詢/設定/QC）；影像改走 DicomWeb WADO-RS。
+- [ ] **Viewer 去 DB 化 + 新舊系統相容（設計定案 2026-08-25，正本＝[systems/viewer.md](systems/viewer.md)）**。
+  需求：同一版 Viewer 要能服務**尚未升級主系統**的醫院。實查後結論——**新舊唯一的差異是影像取得**
+  （舊＝hd-web-server WADO-URI，新＝DicomWeb WADO-RS），其餘 24 個方法都是同一組 proc、純搬遷不分支。
+  **相容性住在 ViewerWebApi**，Viewer 只認一個位址、一套認證。
+  - **計數修正**：先前寫的「56 處／86 處」是 `CreateCommand` 呼叫次數，不是 API 數量。實際是
+    **26 個公開方法**（`DicomQuery` 12／`QualityControl` 9／`SystemConfig` 5），已接 1、剩 25。
+  - **檢查清單不能改走 QIDO**：`viewer_station.search_study` 回的 `QueryResult` 帶 `StudyRef`／
+    `Status`／`HasICad`／`ICadScore[]`，QIDO 表達不了。這也是舊站當初沒用 QIDO 的原因。
+  - **影像走 ViewerWebApi 轉送而不是直連**：登入搬走之後 Viewer 就沒有 hd-web-server 的 cookie 了
+    （現在取影像靠的正是它）。要求串流、不緩衝、不解析 DICOM。
+  - 施工順序：① 影像端點＋legacy 後端（行為不變，只驗轉送）② 加 dicomweb 後端（.191 實測
+    **JPEG 縮圖外觀與速度**，預轉檔→即時渲染是唯一醫師看得到的差異）③ 接其餘 24 個方法
+    ④ 移除 `SafePostgresConnection` 與設定的 `Database` 區塊——**這步才算真的達成不再直連 DB**。
+  - 視訊已確認**不是缺口**：兩邊都不支援 DicomMpeg4（新系統不收、轉檔停用；舊版本來就沒有）。
+- [ ] **`viewer_station.search_study` 沒有院區過濾**（2026-08-25 發現）：`query_dicom`／C-MOVE／
+  QIDO/WADO/DELETE/UPS／MWL／匯出都補上了，但**醫師在 Viewer 上看到的檢查清單走這支、完全繞過**。
+  它已經收到 `AETitle`，掛鉤與 `query_worklist` 一樣現成，可獨立於 Viewer 主線隨時做。
 - [ ] **看片端安裝與更新統一（Inno Setup）**：設計正本＝`docs/viewer-install-design.md`（2026-08-13 討論中）。過去都用「直接複製過去」佈署→路徑混亂、無安裝紀錄、不能退版。**前置整備已完成並 push**（版本 2.3.0＋build 時間戳、LinkClient 可出 x86、程式對安裝位置零假設、升版不再遺失使用者設定）。**待決定四件事**：退版機制（junction 切換 vs 備份搬回）／self-contained 與否／安裝根目錄（Program Files vs C:\HyperDigital）／包怎麼切。⚠️ 關鍵限制：.NET 使用者設定路徑含「安裝路徑雜湊」，版本化目錄若直接當執行路徑，每次更新都會掉登入帳號與面板狀態且 `Settings.Upgrade()` 救不回——必須有固定不變的 `current` 指標當啟動路徑。
 
 ### 若瑟醫院 陳醫師需求（2026-08-11 記錄，優先於多院區主機；SITE_CODE 設計已出正本暫停）
