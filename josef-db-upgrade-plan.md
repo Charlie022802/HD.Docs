@@ -3,7 +3,7 @@
 **結論先講（2026-08-26 已用若瑟的 DB 複本實際預演過）**：
 
 - 腳本層面**只有一個阻擋項**，已修好並驗證通過 —— 現在 `2.0.22 → 2.0.27` 整條鏈跑得完。
-- 升完之後**還有一處會壞**：`hd-web-server` 的報告格式清單端點（見三之三），需要與同事協調。
+- ~~升完之後還有一處會壞：`hd-web-server` 的報告格式清單端點~~ **✅ 已解決**（加 `DEFAULT NULL`，見三之三），**不必動 hd-web-server**。
 - 順帶把**整條更新鏈補完**：現在從若瑟的原始 dump、零手動修改，能一路跑到 `2.0.38`。
   過程中發現**更新鏈與實際資料庫已經分岔**（三個物件從沒進過腳本），
   以及**行尾會讓 prosrc 修補失敗**——見三之四。
@@ -63,7 +63,7 @@
 |---|---|---|---|
 | 2.0.25 | `DROP FUNCTION IF EXISTS export.get_job(jsonb)` | 存在 | 安全（drop 後重建同簽章） |
 | 2.0.26 | `DROP VIEW public."VIEW_MWL"` | 不存在 | ✅ 安全 —— **同一支腳本前面就建了它**（見 A） |
-| 2.0.27 | `DROP FUNCTION IF EXISTS report.get_report_format_list()` | 存在且有人用 | ⚠️ **升完功能失效** |
+| 2.0.27 | `DROP FUNCTION IF EXISTS report.get_report_format_list()` | 存在且有人用 | ✅ 新版加了 `DEFAULT NULL`，無參數呼叫仍可用 |
 
 ### 其他語句
 
@@ -146,7 +146,7 @@ const sql = `SELECT report.get_report_format_list()`;
 
 | 驗證項 | 結果 | 判定 |
 |---|---|---|
-| `report.get_report_format_list` 的簽章 | 只剩 `(inparams json)` | ⚠️ 無參數版確實被刪 → C 成立 |
+| `report.get_report_format_list` 的簽章 | `(inparams json DEFAULT NULL)` | ✅ 加了預設值，兩種呼叫都成立 |
 | `export.get_disc_info` 的簽章 | `(integer)` ＋ `(integer,text)` ＋ `(jsonb,text)` | ✅ 舊多載留著，舊呼叫端安全 |
 | `HD_USER_AUDIT_LOG` 是否被建出 | 否 | ✅ 判斷正確跳過，沒有誤建 |
 | `VIEW_MWL` 是否存在 | 是 | ✅ 2.0.26 自己建的 |
@@ -163,7 +163,7 @@ const sql = `SELECT report.get_report_format_list()`;
 
 | proc | 程式傳的參數 | DB 2.0.27 | 判定 |
 |---|---|---|---|
-| `report.get_report_format_list` | **0 個** | 只有 1 個參數版 | ⚠️ 2.0.27 刪了無參數版，程式沒跟上 |
+| `report.get_report_format_list` | **0 個** | `(json DEFAULT NULL)` | ✅ 已加預設值，無參數呼叫仍可用 |
 | `public.insert_routing_job` | 1 個 | **完全沒有這支** | ⚠️ 見下 |
 | 其餘 34 支（含 `export.get_disc_info` 的 2 參數版） | — | 吻合 | ✅ |
 
@@ -193,9 +193,17 @@ SELECT public.insert_routing_job($1)
 主 PACS 這邊的對應功能是 `insert_study_job` 的 `jobType = 'ROUTE'` 分支
 （那支在版控裡、也在若瑟上）—— 但兩者的參數與行為要比對過才能斷定是不是替代品。
 
-### 要跟同事確認的兩件事
+### ✅ 兩件都已解決，不必動 hd-web-server
 
-1. **`get_report_format_list`**：hd-web-server 要改成傳 json，還是 2.0.27 保留無參數多載？
+1. **`get_report_format_list`** —— **在 2.0.27 把參數加上 `DEFAULT NULL`**。
+   兩種寫法都成立，而且**語意完全等價**：函式本體對 NULL 是安全的
+   （`NULL->>'isEnable'` 是 NULL，`WHERE vIsEnable IS NULL` 就是不過濾），
+   所以無參數呼叫回傳的東西與舊版逐字相同。
+   - 舊的無參數版**仍必須 DROP**：PostgreSQL 裡 `f()` 與 `f(json DEFAULT NULL)` 並存時，
+     呼叫 `f()` 會變成 `function is not unique`。
+   - **已經跑過舊版 2.0.27 的站台（`.191`）**：版本閘門讓 2.0.27 不會重跑，
+     所以 `2.0.38` 另加一段用既有 `prosrc` 就地補上預設值（不重抄函式本體）。
+     兩個情境都實測過，重複執行會略過。
 2. ~~**`insert_routing_job`**：這支該進版控，還是改呼叫 `insert_study_job`？~~
    **✅ 已補回版控（`db_update_v2.0.38.sql`，Database repo `f59aa51`）** —— 使用者確認
    web 那邊有在用，所以是加回來而不是淘汰。定義逐字取自 2026-07-20 的 dump，
