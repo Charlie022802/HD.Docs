@@ -72,6 +72,38 @@ options 就丟例外；而該 scheme 是預設 scheme、每個請求都會走認
 而真正的原因（少一個設定）完全看不出來。反過來說，能容忍缺設定的服務，裝上去之後
 **「裝成功」不等於「功能可用」**——部署後要另外確認那行 WARNING 有沒有出現。
 
+## `preserve` 的三個性質（2026-08-26 一天內全部撞到）
+
+manifest 的 `preserve` 會在升版時把**舊 release 的設定檔複製到新 release**，
+讓機器上的設定不會被新版覆蓋。立意正確，但它有三個容易忘記的後果：
+
+**① 退版不會帶設定過去（hdctl 0.2.5 已修）**
+目標 release 用的是它**當初被安裝時**那份設定，可能是幾個月前的。
+實案：Keycloak 換 domain 改了 current 的 appsettings，退版後登入立刻壞掉，
+而症狀看起來像「退版沒解決問題」——最不該在退版當下遇到的那種誤導。
+現在退版會把現行設定帶過去，目標版原檔留成 `.pre-rollback`。
+
+**② 但帶過去也可能出事：設定的來源跨版本改變時（hdctl 0.2.6 加警告）**
+「設定是機器狀態、跟版本無關」這個前提，在**設定從 appsettings 搬到 env 檔**這種變更下不成立。
+實案：alpha.5 把 `Keycloak:Authority` 搬進 env（appsettings 留空），退到 alpha.4 時空的
+appsettings 被帶過去，但 **unit 是照目標版 manifest 重寫的**，alpha.4 沒有那個 env 檔
+→ 兩邊都沒有 Authority → **服務 active 但每個請求都 500**。
+hdctl 現在會比對兩版的 `envFiles`，目標版少了就出聲（只警告不擋——退版是逃生路徑）。
+
+**③ 它會遮住壞掉的設定檔——最陰的一個**
+新版隨包附上的 appsettings **永遠不會抵達既有安裝**（一律被舊的蓋掉）。
+所以如果包裡的 appsettings 是壞的，**既有安裝完全正常，只有全新安裝會炸**，也就是下一間新醫院。
+實案：加註解時在同一層多疊了一個 `"_comment"`，JSON 語法上合法、編輯器與 python 都不抱怨，
+但 .NET 的 `JsonConfigurationProvider` 對重複鍵直接 `InvalidDataException`。
+`.191`／`.199` 升級後健檢 200、登入正常、JWT 也過——**而包是壞的**。
+
+→ **打包腳本現在會擋**：`pack-*.sh` 除了檢查密碼沒漏進包裡，也會驗每個 `appsettings*.json`
+能不能載入（重點是重複鍵；python 的 `json.load` 預設允許重複、後者覆蓋前者，
+要用 `object_pairs_hook` 才抓得到）。護欄本身先驗過會叫：壞的 exit=1、好的 exit=0。
+
+**推論**：改設定檔之後，光看「既有機器升級沒事」不足以證明包是好的。要嘛靠打包時的檢查，
+要嘛真的做一次全新安裝。
+
 ## 現有部署現況（統一前）
 - **DicomWeb**：自有 `deploy/install.sh`（.199），**不寫版本檔**（靠 /health）。
 - **傳統 PACS**：舊 `D:\ProgramPublish` 有 install/update/rollback（/home/HD/service + hd_conf.json 集中設定、寫 version.txt、13 服務含舊 web 元件、root 執行）。新版要一般化進 hdctl。
