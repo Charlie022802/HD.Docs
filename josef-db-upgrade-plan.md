@@ -244,7 +244,7 @@ ERROR: column u.OTHERS does not exist
 | 版本 | 補了什麼 | 為什麼 |
 |---|---|---|
 | `2.0.27` | `HD_USER_AUDIT_LOG` 的 ALTER 加 `to_regclass` 判斷 | 那是 DicomWeb 的表，沒裝的站台沒有 |
-| `2.0.35` | 補上 `HD_USER` 的 `ENABLE` / `EXPIRE_DATE` / `OTHERS` | `site_code_of_user` 要讀 `OTHERS`，而鏈裡從沒加過；正本 `1.create.sql` 有這三欄 |
+| `2.0.35` | 補上 `HD_USER."OTHERS"` | `site_code_of_user` 要讀它，而鏈裡從沒加過。**只補這一個** —— 正本 `1.create.sql` 另有 `ENABLE`／`EXPIRE_DATE`，但程式碼與全庫 proc 都沒讀，不往生產庫加沒人用的欄位；`.191` 上那兩欄也維持不動（刪欄位不可逆，且新建的 DB 都會有） |
 | `2.0.33`／`2.0.36`／`2.0.37` | prosrc 修補前先 `replace(v_src, chr(13), '')` | 見下 |
 | `2.0.38`（新增） | 補回 `insert_routing_job` | hd-web-server 在用，而鏈裡從沒建過 |
 
