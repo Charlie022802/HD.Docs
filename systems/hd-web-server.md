@@ -1,10 +1,20 @@
 # hd-web-server（同事維護的 Node 影像服務）
 
-> ## 這不是我們的 repo，只讀不改
+> ## 這不是我們的 repo，而且**已凍結**（2026-08-27）
 >
 > `hd-web-server` 由同事維護，不屬於 `D:\Dev\HyperDigital` 下那 11 個 repo。
 > 工作副本放在 `D:\Dev\HyperDigital\hd-web-server`（2026-08-19 為排障而取），
-> **不要在本地 commit**，要改就開 issue／PR 給同事。處理方式同 [animal-proxy.md](animal-proxy.md) 的凍結慣例。
+> **不要在本地 commit**。處理方式同 [animal-proxy.md](animal-proxy.md) 的凍結慣例。
+>
+> **2026-08-27 決定：以現在的版本為主，不再更新。** 所以「請同事在那邊加一段」不再是
+> 可用的解法——任何需求要嘛在我們這側解決，要嘛等看片端切到院內 Keycloak 之後，
+> 那條路本身退場。
+>
+> 已知受此影響的一項：`loginCheck` 不檢查 `HD_USER.ENABLE`，所以**主控台的「停用」擋不住
+> 看片端的帳密登入**。這不是待辦，是已知限制，UI 與交接文件都據實寫明
+> （見 [../keycloak-user-provisioning.md](../keycloak-user-provisioning.md)）。
+> 曾評估「停用時抽換密碼 hash、啟用時放回」讓它對看片端也生效，**不採用**：
+> 那讓停用變成一個有隱藏副作用的操作、且賭在暫存值不會遺失上，而問題本身會隨切換消失。
 
 ## 為什麼這份文件必須存在
 

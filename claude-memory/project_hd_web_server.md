@@ -8,6 +8,10 @@ metadata:
   modified: 2026-08-19T09:12:18.793Z
 ---
 
+**2026-08-27 起整支凍結**：以現在的版本為主、不再更新。所以「請同事在那邊加一段」不再是可用的解法——
+需求要嘛在我方解決，要嘛等看片端切院內 Keycloak 之後那條路退場。
+已知後果：`loginCheck` 不檢查 `HD_USER.ENABLE` → **主控台的「停用」擋不住看片端的帳密登入**（已知限制，非待辦）。
+
 桌面看片端的**影像檔是 `hd-web-server` 送的** —— 同事維護的 Node/Fastify 服務，不是那 11 個 repo 之一。`localconfig.json` 裡 `Database.Host`（查 metadata）與 `DownloadHost`（抓影像，打 `/api/v2.0/wado-uri`）是**兩個獨立設定、實務上指向不同主機**，所以「清單查得到、影像調不出來」是正常的失敗形狀。
 
 工作副本 `D:\Dev\HyperDigital\hd-web-server`（2026-08-19 為排障下載，不含 `.git`）—— **只讀不改**，同 [[project_hd_animal_proxy]] 的凍結慣例。
