@@ -129,7 +129,39 @@
 - [x] 抽跨產品共用 Auth lib（2026-08-06 完成：HD.Shared.Auth＝Keycloak 取/驗 token＋API Key handler＋ScopeCatalog＋HdUserRepository；DicomWeb/Export 已用）。
 - [x] Keycloak 驗證面全通：audience mapper（hd-api→hd-pacs）嚴格驗證、OIDC 授權碼登入（主控台整圈）。
 - [x] DicomWeb 人類登入切 Keycloak（2026-08-07/08 完成，見上）。
-- [ ] provisioning：使用方打 API 註冊（Keycloak Admin REST 契約待同事）。詳 [systems/identity.md](systems/identity.md)。
+- [x] ~~provisioning：使用方打 API 註冊（Keycloak Admin REST 契約待同事）~~ → **改成 JIT 佈建（2026-08-27）**。
+  契約沒發生：同事的**前端訂閱制系統**先上線，使用者在那邊自行註冊、Keycloak 在他那端整合，於是
+  `HD_USER` 永遠不會長出來 → 拿合法 token 打 DicomWeb/Export 一律 401。改成「Keycloak 認得但無對應
+  `HD_USER` 就地建一筆零角色的」，`HD.Shared.Auth.HdUserRepository.ResolveByIdAsync`，三支服務共用。
+  開關 `Keycloak__JitProvisionUsers=true`（**環境變數，不能放 appsettings**——preserve 會擋住），
+  **預設 false**。兩種真實 schema 各 25 項斷言通過。詳 [systems/identity.md](systems/identity.md)。
+- [x] **JIT 佈建已部署 `.199`（2026-08-27）**：dicomweb `1.0.0-alpha.10`＋export `0.1.0-alpha.16`，
+  `/etc/hd-pacs-dicomweb/keycloak.env` 與 `/etc/hd-export/keycloak.env` 各加一行
+  `Keycloak__JitProvisionUsers=true`。**env 目錄是 `hd-pacs-dicomweb` 不是 `hd-dicomweb`**
+  （unit 名同）——加到不存在的路徑不會報錯，只會讓 JIT 靜默沒開啟，所以動之前一定要先 `ls`。
+  兩個 unit（5080 主站＋5081 UPS）共用同一份 envFiles，加一次即可。
+  順手補了 `HD.Export/deploy/pack-export.sh`（Export 原本是唯一沒有打包腳本的 hdctl 元件，
+  等於少掉密碼檢查與設定檔可載入檢查兩道）。
+  **主控台（`.191`）刻意不開**：它本來就不會 401（沒對應 `HD_USER` 也登得進、只是零 scope），
+  而且三支共用同一張 `HD_USER`，人只要打過 `.199` 一次就已經在表裡了。
+- [x] **JIT 端到端驗證通過（2026-08-27，`.199` 生產）**：`active`＋`/health` 200 只證明服務起得來、
+  沒走到 JIT 分支，所以另外造了「Keycloak 有、`HD_USER` 沒有」的狀態實測 ——
+  把 `.191` 的 `hdtest` 那列暫時改名 `hdtest_jitbak`，用 password grant 取 token 打 `.199`：
+
+  | | `HD_USER` 有（基準） | 改名後（JIT 生效） | 還原後 |
+  |---|---|---|---|
+  | `/api/v1/auth/me` | 200、10 scopes | **200、`scopes:[]`** | 200、10 scopes |
+  | QIDO | 200 | **403**（不是 401） | 200 |
+
+  **401→403 是關鍵證據**：401＝不知道你是誰，403＝知道你是誰但沒權限，後者代表 `HD_USER`
+  已建出來且 `ResolveScopes` 跑過。建出來的列：`ROLES=[]`、`GROUP_REF=2`、
+  `OTHERS.keycloakSub` **等於 token 的 `sub`（`c23d9283-…`）** —— 那個 UUID 我們沒有別的管道拿得到，
+  能對上才證明存的是真身分。還原用單一交易（先刪 JIT 列再改回名字，因為 `ID` 沒有唯一約束，
+  順序反了會短暫出現兩列同 ID 而查詢是 `LIMIT 1`），原列 UUID `2836b334-…` 全程未被刪。
+- [ ] **權益等級仍未解**：JIT 讓人進得來，但權限要人工指派。方向＝訂閱方案對應 Keycloak group、
+  我方做 group → `HD_ROLE` 映射（`groups` claim 已經在 token 裡）。**待與同事確認對照表。**
+- [ ] **AdminConsole 使用者管理頁**：JIT 佈建出來的人要有地方指派角色。順帶補掉
+  「`HD_USER.ROLES` 全 DB 沒有任何寫入路徑」這個洞（現在只能手動改資料庫）。
 - [x] **帳密（人）路打通（2026-08-09）**：`HD_USER` 補 `ID=hdtest`（ROLES=[1] admin、email=hdtest@hyperdigital.biz 與 Keycloak 一致）→ password grant 取 token 打 `/me` **200 整圈通**（scopes 由角色 1 解析：dicomweb.read/export.*/report.*/admin.*；無 stow/import 子區段故無 write）。正軌仍是 provisioning 雙寫。
 - [x] **groups claim（2026-08-09，同事需求）**：Keycloak `hd-api` scope 加 Group Membership mapper（claim=groups、Full path Off、access+ID token）→ 掛 `hd-api` 的 client 全部帶 groups；DicomWeb `/api/v1/auth/me` 回傳 groups（`782ed6f`，部署 .199 驗證：`["hyperdigital"]`）。提醒：groups 僅供顯示/分流，**授權仍查 DB**；若要群組→權限映射另議。
 

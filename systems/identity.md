@@ -66,8 +66,65 @@
 - **⚠️ 第二個坑：claim 映射**。舊 `JwtSecurityTokenHandler` 預設把 `sub`→nameidentifier、`email`→schema URI，害讀不到。**要關掉**：`handler.MapInboundClaims=false`，ASP.NET 對應 `options.MapInboundClaims=false`。關掉後 `sub`/`preferred_username`/`email`/`groups` 都正確。
 - 端點：token `…/token`、auth `…/auth`、userinfo `…/userinfo`、logout `…/logout`（end_session）。
 
-## Provisioning（決策）
+## Provisioning
+
+### 原決策（2026-08-06，**未實作，已被現實推翻**）
 使用方打 API 去 Keycloak 註冊帳號（帳密），同一動作建 `HD_USER`（同 ID、配 role）→ 兩邊建立當下同步、無孤兒。註冊 API＝Keycloak Admin REST（需 service client 憑證），契約待同事給。
+
+**這個契約沒有發生。** 同事的**前端訂閱制系統**先上線了：使用者在那邊自行註冊、Keycloak 由他那端整合。
+於是註冊發生在我們看不到的地方，`HD_USER` 永遠不會長出來——症狀就是拿著合法 token 打 DicomWeb／Export 一律 **401**。
+
+### 現行：JIT 佈建（2026-08-27）
+
+**Keycloak 認得、但本系統沒有對應 `HD_USER` 時，就地建一筆零角色的使用者**，而不是拒絕。
+之後管理者再指派角色。等於把「建立當下同步」換成「第一次使用時補資料」。
+
+為什麼是這個而不是雙寫：**自行註冊的情境下沒有人能保證雙寫會發生**。而且訂閱制的重點不是建立、是
+**權益會一直變**——推播式同步每漏一次就是靜默漂移，且漂移方向很糟（已取消訂閱的人還留著權限）。
+JIT 沒有這個失敗模式：取消訂閱時 Keycloak 不發 token，人根本到不了我們這裡。
+
+- **開關**：`KeycloakOptions.JitProvisionUsers`，**預設 false**，要開的站台明確開。
+  設定**必須走環境變數** `Keycloak__JitProvisionUsers=true`（放各服務的 `/etc/hd-*/keycloak.env`）——
+  `appsettings.json` 在 hdctl 的 preserve 清單裡，新增的設定不會上到既有機器（2026-08-18 Export 踩過）。
+- **實作**：`HdUserRepository.ResolveByIdAsync(userId, provisionIfMissing, ct)`（HD.Shared.Auth，三支服務共用）。
+  傳 `null` 給第二個參數＝維持原本行為。
+- **佈建出來是零角色**：`ROLES='[]'`、`GROUP_REF=2`（`DEFAULT`）。進得來，但每個 scope 都沒有，
+  授權仍然出自 DB。**`OTHERS` 存 `keycloakSub` 與 `provisionedBy:"jit"`**——前者是之後想改用 `sub`
+  當連結鍵的唯一資料來源（佈建當下不存就永遠補不回來），後者讓管理介面分得出「自己註冊進來的」。
+- **稽核**：`JitProvisioningAudit.Emit`（共用），action `auth.user.jit_provision`。
+  這則事件是「這個帳號從哪冒出來的」的唯一線索——建立動作沒有經過任何管理介面。
+
+**三個實作上的坑（都實測撞過）**：
+
+1. **`HD_USER."ID"` 沒有唯一約束**，只有非唯一索引 `index-HD_USER-ID`，所以 `ON CONFLICT` 用不了。
+   併發打進來會插出多列同 ID，而 `FindByFieldAsync` 的 `LIMIT 1` 讓「之後查到哪一列」變不確定——
+   權限跟著飄，且完全沒有錯誤訊息。解法：`pg_advisory_xact_lock(hashtext('hd_user_jit:'||id))`
+   ＋`INSERT … WHERE NOT EXISTS`，不動 schema。（加唯一索引會擋到既有站台可能已有的重複資料，另議。）
+2. **不要對 `GROUP_REF` 做 `MIN()` fallback**。安裝種子（`2.initialization.sql`）建的是
+   `0=admin`、`1=build-in`、`2=DEFAULT`，取最小值會挑到 **0＝admin 群組**——自動註冊進來的人
+   被丟進管理群組，而且不會有任何錯誤訊息。作法：只用 2，不在就大聲失敗（與 `insert_update_user`
+   的 `COALESCE(groupRef, 2)` 一致）。
+3. **不要寫沒人讀的欄位**。`ENABLE`／`EXPIRE_DATE` 在 `.191` 有、**更新鏈裡沒有**，若瑟這種舊站台沒有
+   → `INSERT` 直接 `42703`。全 DB 沒有任何地方讀它們，寫了也沒意義，直接不碰。
+   `OTHERS` 則是 `v2.0.35` 才進更新鏈，所以是**條件式寫入**（先查 `information_schema`）。
+   詳見 [josef-db-upgrade-plan.md](../josef-db-upgrade-plan.md) 的「更新鏈是不完整的」。
+
+**驗證**：
+- **單元層**：`HdUserRepository` 對兩種真實 schema 各跑過 25 項斷言（若瑟原始 schema＝無 `ENABLE`；
+  `.191` 型＝有 `ENABLE`），含 12 路併發只插一列、群組 2 缺席時大聲失敗、既有使用者解析不受影響。
+- **端到端（2026-08-27，`.199` 生產，dicomweb `1.0.0-alpha.10`／export `0.1.0-alpha.16`）**：
+  把 `.191` 的 `hdtest` 暫時改名造出「Keycloak 有、`HD_USER` 沒有」的狀態 →
+  `/api/v1/auth/me` 從 10 個 scopes 變成 **200 且 `scopes:[]`**、QIDO 從 200 變成 **403（不是 401）**、
+  DB 長出 `ROLES=[]`／`OTHERS.keycloakSub` 等於 token 的 `sub` 的一列 → 還原後全部回到原狀。
+  **401→403 是關鍵證據**（401＝不知道你是誰，403＝知道你是誰但沒權限）；
+  `active`＋`/health` 200 完全證明不了 JIT，因為那條路徑根本沒被走到。
+
+### 還沒解的：權益等級
+
+JIT 讓人進得來，但**沒有解決「這個人該有什麼權限」**。目前要管理者手動指派。
+方向是把訂閱方案表現成 Keycloak group → 我方做 group → `HD_ROLE` 映射
+（`groups` claim **現在就已經在 token 裡**，見下方 groups claim 段；當時標註「另議」的就是這件事）。
+契約只有一張對照表，比 REST API 契約好談。**待與同事確認。**
 
 ## 遷移影響（實作時）
 - 退役自鑄 token 那串：`JwtIssuer`、`/api/v1/auth/dev-token`、`DevSigningKeyProvider`、`HD_USER.PASSWORD`。

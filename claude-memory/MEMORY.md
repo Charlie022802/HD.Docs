@@ -59,3 +59,4 @@
 - [UPS-RS](project_ups_rs.md) — DICOMweb 工作清單放 HD.Pacs.DicomWeb、獨立 UPS_WORKITEM 表(public)、目標同一份worklist但橋接HDM延後;phase1(建/搜/取/改狀態+txn鎖/改屬性/取消)已建置未部署;DB migration 004 使用者自跑
 - [i18n 規劃](project_i18n_plan.md) — 多語系已定案(resx+IStringLocalizer,日誌不翻,正本 docs/i18n-plan.md);新 UI 一律 localizer
 - [多院區主機](project_multi_site_host.md) — **階段一完成並套用 .191(v2.0.31,2026-08-18)**:SITE 表+RC_STUDY.SITE_CODE+四個 INSERT 點蓋章;停用院區拒收、SITE 只停用不刪除、出口過濾以「SITE 表有沒有資料」當總開關 — **不是「動物醫院總主機」,是多院區承載(2026-08-18 更正)**;SITE_CODE 蓋章+出口過濾;病歷號作用域靠 SITE.PATIENT_ID_SHARED 設定(預設 false=嚴格隔離);設計完備待開工
+- [JIT 佈建](project_jit_provisioning.md) — 使用者佈建改走 JIT(Keycloak 認得但無 HD_USER 就地建零角色);起因=同事訂閱制前端先上線、原雙寫契約沒發生;開關預設 false 且**必走環境變數**;三個坑=GROUP_REF 不能 MIN fallback(會丟進 admin)/ID 沒唯一約束要 advisory lock/不要寫沒人讀的欄位

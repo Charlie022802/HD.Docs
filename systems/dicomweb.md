@@ -5,7 +5,9 @@
 DICOMweb 對外 REST 服務（QIDO-RS / WADO-RS / WADO-URI / STOW-RS / DELETE / Import / UPS-RS）+ Blazor Admin UI。
 
 - **原始碼**：`D:\Dev\HyperDigital\HD.Pacs.DicomWeb`（git，GitHub Charlie022802/HD.Pacs.DicomWeb，master）。需與 `HD.Shared` clone 到同層（ProjectReference 相對路徑）。
-- **生產**：**192.168.68.199**（hostname 目前 newdicomweb；產品名定 `hd-dicomweb`），埠 **5080**，連 **192.168.68.234** HDPACS DB。
+- **生產**：**192.168.68.199**（hostname 目前 newdicomweb；產品名定 `hd-dicomweb`），埠 **5080**，連 **192.168.68.191** 的 HDPACS DB。
+  （~~連 .234~~ 是舊資訊：2026-08-05 已 repoint 到 .191，2026-08-10 再確認「DicomWeb 不上 .191、長留 .199」。
+  同機的 Export API :5090 也是連 .191。**三支服務（DicomWeb／Export／.191 的主控台）共用同一張 `HD_USER`**。）
 - **版本**：`Directory.Build.props`（`1.0.0-alpha.1` + 台灣時間 build 戳）。`/health` 與 `/dicomweb/conformance` 回 version+build（`Domain/AppVersion.cs`）。**安裝端不另寫版本檔**，靠 /health 查。
 
 ## 雙軌實作（重要）
