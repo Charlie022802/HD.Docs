@@ -117,7 +117,13 @@ JPEG/PNG → Secondary Capture；PDF → Encapsulated PDF。回 201 + 各層 UID
 ```
 GET /api/v1/audit/logs?from=&to=&actorId=&action=&resourceType=&resourceId=&status=&page=&pageSize=
 ```
-回應含 `total`＋`X-Total-Count` header。（全產品事件的管理視圖在主控台 `/audit`。）
+回應含 `total`＋`X-Total-Count` header。
+
+> **稽核的「看」集中在主控台**（`.191:5200` 的 `/audit`），本站只負責「打」事件。
+> 原本 `/admin/audit-logs` 管理頁與其後端端點已於 `1.0.0-alpha.11` 下架 —— `HD_USER_AUDIT_LOG`
+> 自 v2.0.27 起是全產品共用表（多了 `PRODUCT`／`CATEGORY`），而那個頁面只濾 `TENANT_ID`、
+> 也沒有 `PRODUCT` 欄，等於把 export／admin-console 的事件混進來當成本站的顯示。
+> **本端點（對外契約）保留**，但同樣沒有 `PRODUCT` 篩選，跨產品的查詢請用主控台。
 
 ### 身分查詢（登入即可）
 ```
@@ -143,10 +149,9 @@ GET /api/v1/auth/me
 | GET/PUT | `/api/v1/admin/settings` | 同上 |
 | GET | `/api/v1/admin/logs`、`/logs/files` | 同上 |
 | GET | `/api/v1/admin/access-logs` | 同上 |
-| GET | `/api/v1/admin/audit-logs` | 同上 |
 | GET | `/admin/auth/login` | 匿名（OIDC challenge 導 Keycloak） |
 | POST | `/admin/auth/logout` | 匿名（RP-initiated 登出，清 cookie＋SSO 會話） |
-| — | `/admin/*` 管理網頁（login / status / audit-logs / access-logs / log-viewer / settings） | Admin cookie（Keycloak SSO 登入） |
+| — | `/admin/*` 管理網頁（login / status / access-logs / log-viewer / settings） | Admin cookie（Keycloak SSO 登入） |
 | GET | `/` | 匿名（導向 `/admin`） |
 
 ## 已退役端點（打到會 404）

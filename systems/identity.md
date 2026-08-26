@@ -6,6 +6,41 @@
 
 > **Export 的 MultiScheme 是照 DicomWeb 抄的**，三處值得注意：①`Keycloak.Authority` 走 `/etc/hd-export/keycloak.env` 而非 appsettings（各院之後自建 Keycloak，理由見 [deployment.md](deployment.md)「設定要放哪」）②沒設 Authority 就只收 API Key、不註冊 JWT scheme，服務照常運作 ③呼叫端是純前端時**還需要 CORS**，且要 expose `Content-Disposition`，否則前端讀不到下載檔名。
 
+## Keycloak 的佈署拓樸（2026-08-27 定案：固定架構）
+
+**一個產品、兩種 Authority，依站台的網路環境決定：**
+
+| 站台 | Authority 指向 | 說明 |
+|---|---|---|
+| 外網連得到的 | `https://sso.hdtech.tw/realms/hd` | 現行，同事建置與維運 |
+| 封閉網路的醫院 | **院內自架的 Keycloak** | 我們架，每間一套 |
+
+**這不是過渡方案，是固定架構。** 所以：
+
+- **不做帳密雙軌**（曾評估過「沒有 Keycloak 就退回 `HD_USER` 帳密」，不採用）——
+  每個站台都會有 Keycloak，`HD_USER.PASSWORD` 維持在退役清單裡。
+  （Viewer 現行的 WebApi 帳密路是**既有現場的相容需求**，與此無關，見下節。）
+- **主控台的啟動護欄（`Authority` 為空就 throw）是對的，不用改。** 在這個架構下
+  「沒有 Authority」只可能是佈署漏設，大聲失敗正確。
+- **主控台進醫院不需要改任何程式碼** —— `Keycloak:Authority` 本來就走各機器的
+  `/etc/hd-*/keycloak.env`（當初就是為了「各院位址不同」才這樣設計的）。
+- 各服務驗 token 用 `Authority=issuer` 自動抓 JWKS，issuer 逐站不同不影響。
+
+**這個架構帶出兩件還沒解的事：**
+
+1. **realm 設定必須變成可重現的產物。** 現在 `sso.hdtech.tw` 的 realm 是手動點出來的，
+   我們這邊只有散文紀錄（`hd-api` client scope、audience mapper `hd-pacs`、
+   `hd-pacs-client`、Group Membership mapper、下面那九個 OIDC 坑…）。要在每間醫院重建一次、
+   靠人照文件點，遲早會漏 —— 而漏掉的症狀就是那九個坑之一，每個都難查。
+   Keycloak 有 realm export/import（JSON），**應該把 realm 匯出成版控檔案當部署產物**。
+2. **兩個身分域的關係還沒定。** 中央有同事的訂閱使用者，院內 Keycloak 有醫院自己的人。
+   訂閱使用者需不需要進到某間醫院的 PACS？不需要＝兩邊各自獨立、乾淨；
+   需要＝院內 Keycloak 要把中央設成 identity provider（brokering），那是另一個設計。
+   **這直接影響 JIT 的語意**：院內 Keycloak 的 JIT 是「醫院員工自助長出 `HD_USER`」，
+   跟訂閱使用者那個情境不是同一回事。
+
+營運面要一併想的：每間醫院的 Keycloak 要升級、憑證、備份，而 Keycloak 自己也要一個 DB。
+
 ## Viewer 切 Keycloak（2026-08-17 決策：雙軌，提前實作、不替換）
 
 **背景**：醫院多為封閉網路，連不到外部的 `sso.hdtech.tw` —— 看片端跑在醫師個人電腦、連的是醫院內部主機，

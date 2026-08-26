@@ -92,6 +92,23 @@
 ## DicomWeb（HD.Pacs.DicomWeb）
 - [x] **API Key 管理收斂（2026-08-06，已 commit `f64704b` + 隨重構部署 .199）**：scope 單一正本 `Domain/ScopeCatalog.cs` + CRUD 單一正本 `Api/Services/ApiKeyService.cs`（EF）；REST（`ApiKeysEndpoints` 補 `PUT`＋`/scopes`、`/ae-titles`）與 Blazor `ApiKeys.razor`（改強型別）共用；退掉 raw-SQL `ApiKeyAdminService`。順手修：`export.read/write` 原本 REST/UI 白名單漏了、無法建 export 金鑰，現可指派（解 REQ-003 測試前置③）。build 0 err、單元測試 87/87 綠。**待 commit + 部署驗**。
 - [x] HTTPS 上線（2026-08-10 完成，詳上方動物總主機區）。
+- [x] **稽核頁下架，收斂到主控台（2026-08-27，`1.0.0-alpha.11`，已部署 .199）**：
+  `HD_USER_AUDIT_LOG` 自 v2.0.27 起是全產品共用表（多了 `PRODUCT`／`CATEGORY`），
+  但這裡的 `/admin/audit-logs` 只濾 `TENANT_ID`、頁面也沒有 `PRODUCT` 欄，
+  等於把 export／admin-console 的事件混進來當成本站的顯示（表頭還寫「資源 UID」，
+  是它只服務 DICOM 時的遺留）。**不是多一個入口，是會讀錯的入口。**
+  這是 API Key 那次整併的遺漏，不是設計決定。
+  拆掉：`AuditLogs.razor`＋NavMenu 連結＋`GET /api/v1/admin/audit-logs`＋
+  `ApiClient.GetAuditLogsAsync`＋只剩它在用的 `_defaultTenantId`。
+  **留下**：寫入管線（`ChannelAuditLogger`/`AuditChannel`/`AuditFlushBackgroundService`/`AuditSpool`）
+  完全不動；對外契約 `GET /api/v1/audit/logs` 保留（有文件、有 conformance 宣告、
+  且整合測試靠它驗證寫入）；`PageAdminAudit` policy 留著（`AccessLogs.razor` 也在用）。
+  驗證：舊管理端點 404、對外契約 401（端點還在）、**並打一筆帶特徵字串的 QIDO 確認事件仍寫得進去**
+  （`qido.query.studies`／`actor=hdtest`／`success`）——只看筆數沒有鑑別力，系統是活的、筆數本來就會長；
+  拆壞寫入端的症狀是稽核靜默停止，不會有錯誤訊息。
+- [ ] `GET /api/v1/audit/logs` 也沒有 `PRODUCT` 篩選、回應也不帶 `Product`/`Category`。
+  對外契約所以沒跟著動，但同樣會讓呼叫端以為拿到的只有 dicomweb 的事件。
+  加篩選參數與欄位是可加性的（不破壞契約），值得補。
 - [ ] 其他出口疊合的 DicomWeb 側收尾（WADO 已做；視需要）。
 - [ ] P2 角色細化 / P5 Keycloak SSO（待 SSO 主機）。
 - [ ] UPS 延後項：Progress Report 事件、suspend、deletion lock、WS 瀏覽器 `?apikey=`。
