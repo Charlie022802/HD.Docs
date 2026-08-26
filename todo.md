@@ -288,6 +288,26 @@
     （`http://192.168.68.191:5200/` 登入正常）——那條驗的是 redirect URI，token 測試碰不到。
   - UI 字串裡的 domain **直接拿掉**（→「將導向 SSO 進行驗證」）：resx 的 key 本身含 domain，
     換一次要動三個語系的 key 與 value，而介面文字寫死基礎設施主機名注定會再爛一次。
+- [x] **待部署的一批全部佈完並驗證（2026-08-26）** —— hdctl 0.2.6、AdminConsole alpha.5、
+  DicomWeb alpha.6，`.191`／`.199` 兩台。順手補上 `pack-adminconsole.sh`／`pack-dicomweb.sh`
+  （publish → 密碼檢查 → hdpack；明確標 `--self-contained false`，因為 manifest 的 exec 是
+  `dotnet app/xxx.dll`）。
+  - **驗「Authority 真的從 env 讀」要有鑑別力**：裝完之後 `preserve` 會把**舊的** appsettings
+    蓋回去（裡面 Authority 有值），所以「服務起得來」什麼都證明不了——兩邊都有值，分不出讀哪個。
+    要把已部署的 appsettings 的 Authority **清空**再重啟才算數：`.191` 仍 active（守衛沒觸發
+    → 值只能來自 env）、`.199` 的 JWT 仍可驗（QIDO 200 → JWT 沒被停用）。
+  - **`preserve` 的第二個性質**（第一個是退版那個）：**新版隨包附上的 appsettings 永遠不會
+    抵達既有安裝**。設定檔一旦被 preserve，就只能靠人工改。
+- [x] **hdctl 0.2.6：退版時目標版 envFiles 比現行版少就警告（2026-08-26，`5a94b66`）**
+  0.2.5 的「退版帶設定」有個沒說出口的前提——**「設定是機器狀態、跟版本無關」，在設定的
+  來源本身跨版本改變時就不成立**。
+  - 實測踩到：alpha.5 把 Authority 從 appsettings 搬到 env（appsettings 留空），退到 alpha.4
+    時空的 appsettings 被帶過去，但 **unit 是照目標版 manifest 重寫的**，alpha.4 沒有那個
+    env 檔 → Authority 兩邊都沒有 → **服務 active 但每個請求都 500**。
+  - `envFiles` 的差集是唯一的可觀察訊號。只警告不擋（退版是逃生路徑），但把修法一起印出來，
+    因為「active + 5xx」這個症狀看起來完全不像設定問題。
+  - **`.pre-rollback` 逃生門同一輪實測過**：換回正本重啟即恢復。
+  - 教訓：這個前提**只有真的退一次版才會發現**。留到現場出事時才踩到，代價完全不同。
 - [x] **AdminConsole／DicomWeb 的 `Keycloak:Authority` 改從 env 讀（2026-08-25 完成，待部署）**
   起因：換 domain 時 **HD.Export 的 repo 一個字都不用改**，因為它當初就把 Authority 當
   「機器相關設定」放進 `/etc/hd-export/keycloak.env`。這兩支寫死在 `appsettings.json`，
