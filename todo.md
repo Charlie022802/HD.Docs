@@ -211,6 +211,32 @@
   - [x] 分工定案：LoggingPlatform＝排障（技術 log）；主控台＝管理視圖（事件表）。
   - [x] DicomWeb/Export/主控台已經共用模型寫同一套事件（主 PACS 連線事件＝LoggingPlatform P2）。
   - [ ] 主控台「稽核查詢頁」：讀事件表（product/category 過濾）＋ Keycloak Admin API 拉登入事件。
+- [x] **使用者管理頁（2026-08-27，`0.1.0-alpha.13`）**：`/users`，policy `AdminUsers`
+  （那個 scope 一直在 `ScopeCatalog` 與 `ResolveScopes` 裡，但從來沒有 policy 用它——
+  在這一頁出現之前沒有任何頁面需要把關）。
+  **補掉的是結構性的洞**：`HD_USER.ROLES` 全系統原本沒有任何寫入路徑（DB proc 只讀不寫、
+  hd-web-server 只有 SELECT），指派角色只能手動改資料庫；JIT 讓使用者會自己長出來且是零角色，
+  這個洞就從「不方便」變成「功能不完整」。
+  定位＝**管授權不管身分**：不建立、不刪除、不碰密碼。只寫 `ROLES`/`GROUP_REF`/`DATE_TIME_MODIFIED`
+  三欄（`ENABLE`/`EXPIRE_DATE` 舊站台沒有且沒人讀；`OTHERS` 帶著 `siteCode` 與 `keycloakSub`，
+  整欄覆寫會抹掉）。清單把未指派角色的排最前面＝JIT 之後的待辦；角色旁邊顯示它實際解析出的
+  scope（角色名稱本身回答不了「他到底能做什麼」），用的是各服務驗權限的同一份實作
+  （`ScopeResolver`，從 `HdUserRepository.ResolveScopes` 抽出來成靜態）。
+  稽核 `auth.user.permission_update` 記 before/after——只記結果的話看不出是誰把權限加上去的。
+  **已實測（`.191`，2026-08-27）**：塞一列 `provisionedBy:"jit"` 的測試資料 → 畫面上排最前面／
+  黃底／「自動註冊」→ 用 UI 指派角色 → `ROLES` 變 `[2]`、**`OTHERS` 的 `keycloakSub` 原封不動**、
+  稽核留下 `rolesBefore:[] → rolesAfter:[2]`。第二項是「不覆寫 OTHERS」那個宣稱的證據——
+  抹掉的話是靜默破壞：畫面一切正常，只有多院區的出口過濾之後莫名失效。
+- [x] **表格可用性（`0.1.0-alpha.14`）**：明確欄寬、列多時表格內捲動＋表頭 sticky、
+  過長內容在格內捲動而非撐寬整表、**可拖曳調整欄寬**（`hdResizableTable`，通用，
+  寬度存 localStorage；把手要在每次資料重繪後重掛，Blazor 換資料會重建 thead 的 DOM）。
+- [ ] 使用者管理後續：`ENABLE` 的實際攔截（要先決定舊站台沒有那一欄怎麼辦）、
+  `OTHERS.siteCode` 的編輯（多院區）、以及「停用 vs 刪除」的語意。
+- [ ] **角色本身的 CRUD 介面**：現在只能指派既有角色，建立／編輯角色仍得直接打 DB。
+  那六支 `HD_ROLE_RBAC_functions.sql`（在 HD.Pacs.DicomWeb repo 的 `db/functions/`）
+  **不在更新鏈裡** —— `.191` 有、2026-07-20 的 dump 與若瑟都沒有，是**第六個分岔項**。
+  差別是這支至少檔案在版控裡，補一支 migration 直接抄即可。動的是 `HD_ROLE`（主 PACS 的表），
+  放在 DicomWeb repo 本來就錯位，跟 `HD_USER_AUDIT_LOG` 是同一種洩漏。
 - [ ] （未來 P2）使用者 provisioning / 稽核查詢。詳 [systems/admin-console.md](systems/admin-console.md)。
 
 ## 共用日誌
