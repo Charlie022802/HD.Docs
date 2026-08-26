@@ -264,29 +264,29 @@
   - **刻意不單獨 hotfix**：`get_next_delete_study` 是刪除的最後一道關卡、單獨補風險可控；
     `insert_study_job` 是進檔流程主幹（STUDY_CLOSE / ROUTE / ARCHIVE 全走它），
     在生產醫院單獨換掉的回報小於風險。併進下一次正式版本更新一起評估。
-- [ ] **若瑟（`10.10.1.148`）DB 2.0.22 → 2.0.27：評估完成，三個阻擋項待修** —— 2026-08-26。
-  **完整評估在 [josef-db-upgrade-plan.md](josef-db-upgrade-plan.md)**，以下只列結論。
-  - 70 支被動到的 proc 裡，只有 **2 支簽章改變**、**3 個真正的 DROP**。其餘是內部變更或全新物件。
-  - **⛔ A（2.0.26）`DROP VIEW public."VIEW_MWL"` 沒有 `IF EXISTS`**，而若瑟沒有那個 view
-    （它的 MWL 走 `query_worklist`）→ 腳本中止。修：加 `IF EXISTS`，對已有的站台行為不變。
-  - **⛔ B（2.0.27）`ALTER TABLE public."HD_USER_AUDIT_LOG"`**，而那張表**只有 DicomWeb 的
-    `init_dicomweb.sql` 會建**，主更新鏈從沒建過 → 若瑟沒裝 DicomWeb 就沒有它。
-    **這不是若瑟特有的——任何沒裝 DicomWeb 的醫院都會卡在 2.0.27。** 主 PACS 的更新鏈相依於
-    另一個產品才會建的表，是設計洩漏。修：搬回 DicomWeb 自己的 migration（過渡做法是加
-    `to_regclass` 判斷）。
-  - **⚠️ C（2.0.27）`DROP FUNCTION report.get_report_format_list()`**，而 `hd-web-server`
-    呼叫的是無參數版 → 升完報告格式清單端點失效。
-    **而且這是現行版本就已經斷裂的相容性**：我們 repo 裡的 hd-web-server 也是這樣呼叫，
-    **任何 DB ≥2.0.27 又跑 hd-web-server 的環境那個端點都是壞的**，只是跑它的機器都還在舊 DB。
-    **需要同事確認**他手上的版本有沒有改成傳 json。
-  - 不構成風險：`export.get_disc_info` 沒 DROP → 變多載；`store_dicom`／`get_mwl_view` 是新增、
-    舊服務不呼叫；`customize`（台大 EEG）建了不會被用到；其餘 ALTER 都有 `IF NOT EXISTS`。
-  - **預演要用若瑟的 DB 複本，不要用「形似的機器」**：`.163` 的 DB 是 2.0.26，跑一遍證明不了什麼。
-    取 `pg_dump` 還原到暫存庫、用 `-v ON_ERROR_STOP=1` 依序跑 23→27，才會精確重現若瑟的每個錯誤。
-  - **升級前務必先備份**：若瑟的 DB **自 2026-04-02 起沒有備份**（`SQLBACK` 最新一份就是那天）。
-    這件事本身的優先級可能比升級還高——影像有 nearline 副本，但 metadata 沒了影像也對不回去。
+- [ ] **若瑟（`10.10.1.148`）DB 2.0.22 → 2.0.27：預演通過，只剩一件要跟同事確認** —— 2026-08-26。
+  **完整評估在 [josef-db-upgrade-plan.md](josef-db-upgrade-plan.md)。**
+  - **預演方式**：取若瑟的 schema dump ＋ `HD_CONFIG` 實際資料，還原進 podman 的
+    `postgres:16` 容器（若瑟是 16.0），確認基準與實機一致後用 `-v ON_ERROR_STOP=1`
+    依序跑 23→27。**完全不碰生產機，失敗零成本。**
+  - **結果：整條鏈通過，版本到 2.0.27。** 三個推測的阻擋項實跑後只剩一個。
+  - **✅ 已修（`21b6b7f`）**：2.0.27 的 `ALTER TABLE public."HD_USER_AUDIT_LOG"` 加了
+    `to_regclass` 判斷。那張表**只有 DicomWeb 的 `init_dicomweb.sql` 會建**，
+    **任何沒裝 DicomWeb 的醫院都會卡在 2.0.27** —— 連帶拿不到同一支腳本裡的
+    nearline 刪除保護。長遠仍該把那段搬回 DicomWeb 自己的 migration（跨產品相依洩漏）。
+  - **❌ 誤判更正**：我原本說 2.0.26 的 `DROP VIEW VIEW_MWL` 會中止 —— **不會**。
+    2.0.26 自己在第 1123 行就先建了那個 view。**錯在拿每支腳本去對「起始基準」做靜態分析，
+    但更新鏈是累積的、單一腳本內部也有順序。** 這就是預演的價值。
+  - **⚠️ 唯一未解**：2.0.27 `DROP` 了 `report.get_report_format_list()`（無參數版），
+    而 `hd-web-server` 呼叫的正是無參數版 → 升完報告格式清單端點失效。
+    **這是現行版本就已斷裂的相容性**，不只若瑟：任何 DB ≥2.0.27 又跑 hd-web-server 的
+    環境那個端點都是壞的，只是跑它的機器都還在舊 DB 所以沒人發現。
+    **要問同事**：他手上的版本有沒有改成傳 json？有→升級時兩者要一起換；沒有→那個 DROP 該檢討。
+  - **升級前務必先做完整備份（含資料）**：若瑟的 DB **自 2026-04-02 起沒有備份**。
+    這件事本身的優先級可能比升級還高。
   - 本次**不含服務更新**：若瑟是 net6 + fo-dicom 4，現行原始碼是 net10 + fo-dicom 5，
-    跨兩個世代，應該是獨立工程。本評估的前提是「服務不動，只升 DB」。
+    跨兩個世代，應該是獨立工程。
+  - **日後其他醫院升級前照同一套流程走一遍** —— 每間缺的物件不一樣，靜態分析猜不準。
 - [x] **Keycloak domain 搬遷 sso.ltcd.tw → sso.hdtech.tw（2026-08-25 完成並驗證）**
   - repo：HD.AdminConsole `760c633`、HD.Pacs.DicomWeb `bfcab68`、HD.Shared `2c383ba`、HD.Docs。
   - 機器：`.191` 主控台、`.199` DicomWeb 的 `appsettings.json`（**current 與舊 release 都改**）、

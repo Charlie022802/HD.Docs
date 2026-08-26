@@ -1,9 +1,19 @@
 # 若瑟 DB 升級評估（2.0.22 → 2.0.27）
 
-**結論先講**：不能直接跑。`2.0.26` 與 `2.0.27` 各有一處會**讓腳本中止**，另有一處會在升完之後
-**讓 hd-web-server 的報告端點失效**。三處都有明確修法，但其中一處牽涉同事維護的服務。
+**結論先講（2026-08-26 已用若瑟的 DB 複本實際預演過）**：
+
+- 腳本層面**只有一個阻擋項**，已修好並驗證通過 —— 現在 `2.0.22 → 2.0.27` 整條鏈跑得完。
+- 升完之後**還有一處會壞**：`hd-web-server` 的報告格式清單端點，需要與同事協調。
 
 盤點日期 2026-08-26。對象主機 `10.10.1.148`（`HDPACS148`）。
+
+> **預演方法**（結果可信的原因）：取若瑟的 schema dump ＋ `HD_CONFIG` 實際資料，
+> 還原進 podman 的 `postgres:16` 容器（若瑟是 16.0），確認基準與實機一致
+> （版本 2.0.22、`VIEW_MWL` 與 `HD_USER_AUDIT_LOG` 皆不存在），
+> 再用 `-v ON_ERROR_STOP=1` 依序跑 23→27。**完全不碰任何生產機。**
+>
+> dump 是 pg_dump 18.2 產的、伺服器是 16，還原前要拿掉 `transaction_timeout`
+> 與 `\restrict` 這些 17+ 才有的語句。
 
 ---
 
@@ -49,7 +59,7 @@
 | 版本 | 語句 | 若瑟狀態 | 後果 |
 |---|---|---|---|
 | 2.0.25 | `DROP FUNCTION IF EXISTS export.get_job(jsonb)` | 存在 | 安全（drop 後重建同簽章） |
-| 2.0.26 | `DROP VIEW public."VIEW_MWL"` | **不存在** | ⛔ **腳本中止** |
+| 2.0.26 | `DROP VIEW public."VIEW_MWL"` | 不存在 | ✅ 安全 —— **同一支腳本前面就建了它**（見 A） |
 | 2.0.27 | `DROP FUNCTION IF EXISTS report.get_report_format_list()` | 存在且有人用 | ⚠️ **升完功能失效** |
 
 ### 其他語句
@@ -60,28 +70,25 @@
 | 物件 | 若瑟 | 判定 |
 |---|---|---|
 | `export."EXPORT_JOB"`、`kiosk."KIOSK_DISC_EVENT"`、`kiosk."KIOSK_CARD_EVENT"`、`report."REPORT_SAVED"`、`public."HD_CALLBACK"` | 存在 | 安全 |
-| `public."VIEW_MWL"` | **不存在** | ⛔ 見上 |
-| `public."HD_USER_AUDIT_LOG"` | **不存在** | ⛔ **腳本中止**（見下） |
+| `public."VIEW_MWL"` | 不存在 | ✅ 2.0.26 自己會先建（見 A） |
+| `public."HD_USER_AUDIT_LOG"` | **不存在** | ⛔ **唯一的腳本阻擋項**（見 B，已修） |
 | `idx_hd_callback_destination_status`（無 `IF NOT EXISTS`） | 不存在 | 安全 |
 | `KIOSK_DISC_EVENT."IS_COPIED"`（2.0.25 唯一沒加 `IF NOT EXISTS` 的欄位） | 不存在 | 安全 |
 
 ---
 
-## 三、三個阻擋項與修法
+## 三、三個推測的阻擋項，實跑後只剩一個
 
-### A. `VIEW_MWL` 不存在，但 2.0.26 無條件 DROP 它
+### ~~A. `VIEW_MWL` 不存在，但 2.0.26 無條件 DROP 它~~ —— **這個判斷是錯的**
 
-```sql
--- db_update_v2.0.26.sql:2010
-DROP VIEW public."VIEW_MWL";
-CREATE OR REPLACE VIEW public."VIEW_MWL" AS ...
-```
+我原本預測 2.0.26 的 `DROP VIEW public."VIEW_MWL";`（沒有 `IF EXISTS`）會中止，
+因為若瑟沒有那個 view。**預演證明不會** —— **2.0.26 自己在第 1123 行就先建了那個 view**
+（註解寫著「Jill 增加查詢mwl view」），第 2010 行才 DROP 重建。同一支腳本內先建後刪。
 
-那是「重建」而非「移除」（改欄位名必須先 drop），但**沒有 `IF EXISTS`**。
-若瑟從來沒有這個 view（它的 MWL 走 `query_worklist(jsonb, jsonb)`），所以腳本會在這裡中止。
+**錯在哪**：我拿每一支腳本去對「2.0.22 的基準」做靜態分析，但**更新鏈是累積的，
+而且單一腳本內部也有順序**。靜態分析看不出這兩件事。
 
-**修法**：改成 `DROP VIEW IF EXISTS public."VIEW_MWL";`。
-這對已經有該 view 的站台行為完全不變，是純粹的加固。
+→ **這就是為什麼要預演。** 三個推測的阻擋項，實跑之後只剩一個。
 
 ### B. `HD_USER_AUDIT_LOG` 是 DicomWeb 的表，但 2.0.27 假設它存在
 
@@ -96,11 +103,12 @@ ALTER TABLE public."HD_USER_AUDIT_LOG" ADD COLUMN IF NOT EXISTS "PRODUCT" ...
 **這不是若瑟特有的問題** —— **任何沒裝 DicomWeb 的醫院都會卡在 2.0.27**。
 主 PACS 的更新鏈相依於另一個產品才會建立的表，是設計上的洩漏。
 
-**修法（二選一）**：
-1. 把那兩行包進 `DO $$ BEGIN IF to_regclass('public."HD_USER_AUDIT_LOG"') IS NOT NULL THEN ... END IF; END $$;`
-2. 把「加欄位」搬回 DicomWeb 自己的 migration —— **那才是它該待的地方**
+**✅ 已修（2026-08-26）**：`db_update_v2.0.27.sql` 的那三行包進 `DO` 區塊，
+先用 `to_regclass` 判斷表在不在，不在就 `RAISE NOTICE` 跳過。
+對已經跑過 2.0.27 的站台（`.191`／`.199`）行為完全不變。
 
-建議 2，1 是過渡。
+**但長遠仍該搬走**：「幫 DicomWeb 的表加欄位」本來就不該出現在主 PACS 的更新鏈裡，
+那是跨產品的相依洩漏。加判斷只是讓卡住的站台先能升上去。
 
 ### C. `report.get_report_format_list()` 被刪，而 hd-web-server 呼叫無參數版
 
@@ -122,6 +130,30 @@ const sql = `SELECT report.get_report_format_list()`;
 
 ---
 
+## 三之二、預演的實際結果（2026-08-26）
+
+修好 B 之後，從乾淨基準重跑整條鏈：
+
+```
+2.0.23 ✔   2.0.24 ✔   2.0.25 ✔   2.0.26 ✔   2.0.27 ✔
+最終版本：{"version":"2.0.27"}
+```
+
+升級後的狀態逐項驗證，六項預測全部命中：
+
+| 驗證項 | 結果 | 判定 |
+|---|---|---|
+| `report.get_report_format_list` 的簽章 | 只剩 `(inparams json)` | ⚠️ 無參數版確實被刪 → C 成立 |
+| `export.get_disc_info` 的簽章 | `(integer)` ＋ `(integer,text)` ＋ `(jsonb,text)` | ✅ 舊多載留著，舊呼叫端安全 |
+| `HD_USER_AUDIT_LOG` 是否被建出 | 否 | ✅ 判斷正確跳過，沒有誤建 |
+| `VIEW_MWL` 是否存在 | 是 | ✅ 2.0.26 自己建的 |
+| `get_next_delete_study` 有 nearline 保護 | 是 | ✅ |
+| `store_dicom` 是否建出 | 是 | ✅ 新增，舊服務不呼叫 |
+
+**限制**：這是 schema-only 的預演（dump 不含資料，只補了 `HD_CONFIG` 的 26 列）。
+它能證明「腳本跑得完、物件變成預期的樣子」，**不能證明資料相關的行為**
+（例如某個 backfill 在有幾百萬列時的表現）。不過本次三個風險點都與資料無關。
+
 ## 四、不構成風險的部分
 
 - **`store_dicom`、`get_mwl_view`**：若瑟沒有這兩支，它們確實是 2.0.23／2.0.26 新增的。
@@ -137,25 +169,24 @@ const sql = `SELECT report.get_report_format_list()`;
 ### 預演環境：用若瑟的 DB 複本，不要用「形似的機器」
 
 `.163` 雖然形態相近，但它的 **DB 狀態與若瑟不同**（2.0.26 vs 2.0.22），
-在上面跑一遍不能證明什麼。真正有鑑別力的預演是：
+在上面跑一遍不能證明什麼。**已採用的做法**（見開頭的預演方法）是取若瑟的 dump
+還原進容器，那會**精確重現**若瑟會遇到的每一個錯誤，而且失敗零成本、不碰生產機。
 
-1. 從若瑟取一份 `pg_dump`
-2. 還原到任一台的暫存資料庫
-3. 依序跑 `2.0.23` → `2.0.27`，**用 `-v ON_ERROR_STOP=1`**
-4. 每一版跑完檢查 `HD_CONFIG` 的版本號有沒有前進
-
-這會**精確重現**若瑟會遇到的每一個錯誤，而且失敗零成本。
+日後其他醫院升級前應照同一套流程走一遍——**每間醫院缺的物件不一樣**
+（若瑟缺的是 `HD_USER_AUDIT_LOG`，別間可能缺別的），靜態分析猜不準。
 
 > 順帶一提：若瑟的 DB **自 2026-04-02 起沒有備份**（`SQLBACK` 裡最新的一份就是那天）。
 > 升級前無論如何都要先做一份完整 dump —— 而這件事本身的優先級可能比升級還高。
 
 ### 升級順序
 
-1. 修好 A、B 兩個阻擋項（改腳本，讓它們對「沒有那個物件」的站台也能跑）
-2. 與同事確認 C，決定是「一起更新 hd-web-server」還是「保留無參數多載」
-3. 取 dump → 預演 → 修到全綠
-4. 排維護時段，先做完整備份，再依序上
-5. 升完的驗證重點：**進檔（C-STORE）**、**MWL 查詢**、**報告格式清單**
+1. ~~修好 A、B~~ ✅ **已完成** —— A 是誤判、B 已加判斷，整條鏈預演通過。
+2. **與同事確認 C**，決定是「一起更新 hd-web-server」還是「在 2.0.27 保留無參數多載」。
+   **這是目前唯一還沒解決的事。**
+3. ~~取 dump → 預演~~ ✅ **已完成**（見三之二）。
+4. 排維護時段，**先做完整備份**（含資料，不是只有 schema），再依序上 23→27。
+5. 升完的驗證重點：**進檔（C-STORE）**、**MWL 查詢**、**報告格式清單**。
+   前兩項是臨床路徑，第三項就是 C。
 
 ### 這次升級**不包含**服務更新
 
