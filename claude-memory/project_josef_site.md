@@ -52,6 +52,15 @@ metadata:
   (2023~2026),**最新一份是 2026-04-02** —— 影像有 nearline 副本,但 **DB 本身四個多月沒備份**,
   這件事比容量更值得注意(metadata 沒了,影像還在也對不回去)。
 
+## 狀態:升級準備完成,**已暫停**(2026-08-26 使用者決定)
+
+腳本全部備妥並驗證過(若瑟原始 dump、零手動修改,`2.0.23 → 2.0.38` 全綠),
+**沒有未解項**,要重啟時直接排維護時段執行即可。
+執行前必做完整備份——若瑟的 DB 自 2026-04-02 起沒有備份。
+升完的驗證重點:進檔(C-STORE)、MWL 查詢、報告格式清單。
+不含服務更新(net6 + fo-dicom 4 → net10 + fo-dicom 5 是另案)。
+預演容器 `josef-rehearsal` 留著。詳見 docs/josef-db-upgrade-plan.md。
+
 ## 待辦
 規劃升到 2.0.27 以上;`insert_study_job` 的 NEARLINE_BACKUP gate 併那次一起改
 (見 [[project_nearline_flag_race]])。預演環境待定:

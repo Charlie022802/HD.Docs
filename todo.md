@@ -264,7 +264,17 @@
   - **刻意不單獨 hotfix**：`get_next_delete_study` 是刪除的最後一道關卡、單獨補風險可控；
     `insert_study_job` 是進檔流程主幹（STUDY_CLOSE / ROUTE / ARCHIVE 全走它），
     在生產醫院單獨換掉的回報小於風險。併進下一次正式版本更新一起評估。
-- [ ] **若瑟（`10.10.1.148`）DB 2.0.22 → 2.0.27：預演通過，只剩一件要跟同事確認** —— 2026-08-26。
+- [ ] **⏸ 暫停（2026-08-26 使用者決定）：若瑟（`10.10.1.148`）DB 升級 —— 準備工作已全部完成**
+  **要重啟時直接排維護時段執行即可，沒有未解項。** 完整評估在
+  [josef-db-upgrade-plan.md](josef-db-upgrade-plan.md)。重點：
+  - **腳本已備妥並驗證**：若瑟原始 dump、零手動修改，`2.0.23 → 2.0.38` 全綠。
+  - **執行前必做**：完整備份（含資料）—— 若瑟的 DB **自 2026-04-02 起沒有備份**，
+    這件事的優先級可能比升級本身還高。
+  - **升完的驗證重點**：進檔（C-STORE）、MWL 查詢、報告格式清單。
+  - 本次**不含服務更新**（若瑟是 net6 + fo-dicom 4，現行原始碼是 net10 + fo-dicom 5，
+    跨兩個世代，另案處理）。
+  - 預演容器 `josef-rehearsal` 留著（`podman start josef-rehearsal`），
+    下次改任何 DB 腳本都可以直接重跑整條鏈。
   **完整評估在 [josef-db-upgrade-plan.md](josef-db-upgrade-plan.md)。**
   - **預演方式**：取若瑟的 schema dump ＋ `HD_CONFIG` 實際資料，還原進 podman 的
     `postgres:16` 容器（若瑟是 16.0），確認基準與實機一致後用 `-v ON_ERROR_STOP=1`
