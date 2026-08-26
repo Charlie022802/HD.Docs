@@ -232,7 +232,7 @@ ERROR: column u.OTHERS does not exist
 | `public."HD_USER"."ENABLE"` | 目前**沒有任何人**讀或寫 | ❌ | `.191` 有，若瑟沒有 |
 | `public."HD_USER"."EXPIRE_DATE"` | 同上 | ❌ | `.191` 有，若瑟沒有 |
 
-> 最後兩列是 **2026-08-27 做 JIT 佈建時撞到的**（`INSERT` 寫了 `ENABLE` → `42703 column does not exist`）。
+> 最後兩列是 **2026-08-26 做 JIT 佈建時撞到的**（`INSERT` 寫了 `ENABLE` → `42703 column does not exist`）。
 > 它們跟前三列不同的地方在於：**沒有任何程式讀它們**，所以分岔至今零症狀——
 > 直到有人第一次想寫進去。JIT 的作法是**乾脆不碰這兩欄**（見下方「不要寫沒人讀的欄位」）。
 

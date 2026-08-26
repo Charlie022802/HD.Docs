@@ -92,7 +92,7 @@
 ## DicomWeb（HD.Pacs.DicomWeb）
 - [x] **API Key 管理收斂（2026-08-06，已 commit `f64704b` + 隨重構部署 .199）**：scope 單一正本 `Domain/ScopeCatalog.cs` + CRUD 單一正本 `Api/Services/ApiKeyService.cs`（EF）；REST（`ApiKeysEndpoints` 補 `PUT`＋`/scopes`、`/ae-titles`）與 Blazor `ApiKeys.razor`（改強型別）共用；退掉 raw-SQL `ApiKeyAdminService`。順手修：`export.read/write` 原本 REST/UI 白名單漏了、無法建 export 金鑰，現可指派（解 REQ-003 測試前置③）。build 0 err、單元測試 87/87 綠。**待 commit + 部署驗**。
 - [x] HTTPS 上線（2026-08-10 完成，詳上方動物總主機區）。
-- [x] **稽核頁下架，收斂到主控台（2026-08-27，`1.0.0-alpha.11`，已部署 .199）**：
+- [x] **稽核頁下架，收斂到主控台（2026-08-26，`1.0.0-alpha.11`，已部署 .199）**：
   `HD_USER_AUDIT_LOG` 自 v2.0.27 起是全產品共用表（多了 `PRODUCT`／`CATEGORY`），
   但這裡的 `/admin/audit-logs` 只濾 `TENANT_ID`、頁面也沒有 `PRODUCT` 欄，
   等於把 export／admin-console 的事件混進來當成本站的顯示（表頭還寫「資源 UID」，
@@ -146,13 +146,13 @@
 - [x] 抽跨產品共用 Auth lib（2026-08-06 完成：HD.Shared.Auth＝Keycloak 取/驗 token＋API Key handler＋ScopeCatalog＋HdUserRepository；DicomWeb/Export 已用）。
 - [x] Keycloak 驗證面全通：audience mapper（hd-api→hd-pacs）嚴格驗證、OIDC 授權碼登入（主控台整圈）。
 - [x] DicomWeb 人類登入切 Keycloak（2026-08-07/08 完成，見上）。
-- [x] ~~provisioning：使用方打 API 註冊（Keycloak Admin REST 契約待同事）~~ → **改成 JIT 佈建（2026-08-27）**。
+- [x] ~~provisioning：使用方打 API 註冊（Keycloak Admin REST 契約待同事）~~ → **改成 JIT 佈建（2026-08-26）**。
   契約沒發生：同事的**前端訂閱制系統**先上線，使用者在那邊自行註冊、Keycloak 在他那端整合，於是
   `HD_USER` 永遠不會長出來 → 拿合法 token 打 DicomWeb/Export 一律 401。改成「Keycloak 認得但無對應
   `HD_USER` 就地建一筆零角色的」，`HD.Shared.Auth.HdUserRepository.ResolveByIdAsync`，三支服務共用。
   開關 `Keycloak__JitProvisionUsers=true`（**環境變數，不能放 appsettings**——preserve 會擋住），
   **預設 false**。兩種真實 schema 各 25 項斷言通過。詳 [systems/identity.md](systems/identity.md)。
-- [x] **JIT 佈建已部署 `.199`（2026-08-27）**：dicomweb `1.0.0-alpha.10`＋export `0.1.0-alpha.16`，
+- [x] **JIT 佈建已部署 `.199`（2026-08-26）**：dicomweb `1.0.0-alpha.10`＋export `0.1.0-alpha.16`，
   `/etc/hd-pacs-dicomweb/keycloak.env` 與 `/etc/hd-export/keycloak.env` 各加一行
   `Keycloak__JitProvisionUsers=true`。**env 目錄是 `hd-pacs-dicomweb` 不是 `hd-dicomweb`**
   （unit 名同）——加到不存在的路徑不會報錯，只會讓 JIT 靜默沒開啟，所以動之前一定要先 `ls`。
@@ -161,7 +161,7 @@
   等於少掉密碼檢查與設定檔可載入檢查兩道）。
   **主控台（`.191`）刻意不開**：它本來就不會 401（沒對應 `HD_USER` 也登得進、只是零 scope），
   而且三支共用同一張 `HD_USER`，人只要打過 `.199` 一次就已經在表裡了。
-- [x] **JIT 端到端驗證通過（2026-08-27，`.199` 生產）**：`active`＋`/health` 200 只證明服務起得來、
+- [x] **JIT 端到端驗證通過（2026-08-26，`.199` 生產）**：`active`＋`/health` 200 只證明服務起得來、
   沒走到 JIT 分支，所以另外造了「Keycloak 有、`HD_USER` 沒有」的狀態實測 ——
   把 `.191` 的 `hdtest` 那列暫時改名 `hdtest_jitbak`，用 password grant 取 token 打 `.199`：
 
@@ -187,13 +187,13 @@
   排障第一句話——現場截這張圖就知道版本／環境／連到哪個 DB／SSO 指哪。**DICOMweb Manager 同步加上**
   （`1.0.0-alpha.12`），那邊多「啟用模組」與「JIT 佈建」兩項：前者因為同一份程式碼會以不同模組
   組合起多個 unit（5080=dicomweb+admin、5081=ups），後者只存在機器的 env 檔裡、畫面上原本看不出來。
-- [x] **互動渲染統一到 router 層（2026-08-27，`0.1.0-alpha.9`）**：原本四個頁面各自標 `@rendermode`，
+- [x] **互動渲染統一到 router 層（2026-08-26，`0.1.0-alpha.9`）**：原本四個頁面各自標 `@rendermode`，
   MainLayout 留在靜態渲染——掛在它上面的 `@onclick` 不會執行、`@ref` 也跨不過邊界，於是同一個功能
   得寫兩種版本。改成 `<Routes @rendermode="InteractiveServer" />` 後，`DotNetObjectReference` +
   `show.bs.modal` 那整套繞法拆掉。**必要的連帶修正**：互動路由會攔截同源連結去比對路由，
   指向非 Blazor 端點的連結要 `data-enhance-nav="false"`——`/logout` 與語言切換本來就有，
   `LoginPrompt` 的 `/login` 沒有（靜態時不需要），不補的話按登入變 NotFound。
-- [x] **翻譯補齊（2026-08-27，`0.1.0-alpha.11` / DicomWeb `1.0.0-alpha.13`）**：裝置授權頁 60 個 key
+- [x] **翻譯補齊（2026-08-26，`0.1.0-alpha.11` / DicomWeb `1.0.0-alpha.13`）**：裝置授權頁 60 個 key
   從沒進過 resx、API 金鑰的權限名稱根本沒經過 localizer、Export 狀態的「錯誤」卡在另一本 resx。
   **查法的教訓寫在 [i18n-plan.md](i18n-plan.md)「漏譯怎麼查」** —— 掃 `L["字面量"]` 只找得到一半，
   動態查表點要另外枚舉；漏譯是靜默失敗（localizer 找不到就回傳 key，而 key 就是中文）。
@@ -211,7 +211,7 @@
   - [x] 分工定案：LoggingPlatform＝排障（技術 log）；主控台＝管理視圖（事件表）。
   - [x] DicomWeb/Export/主控台已經共用模型寫同一套事件（主 PACS 連線事件＝LoggingPlatform P2）。
   - [ ] 主控台「稽核查詢頁」：讀事件表（product/category 過濾）＋ Keycloak Admin API 拉登入事件。
-- [x] **使用者管理頁（2026-08-27，`0.1.0-alpha.13`）**：`/users`，policy `AdminUsers`
+- [x] **使用者管理頁（2026-08-26，`0.1.0-alpha.13`）**：`/users`，policy `AdminUsers`
   （那個 scope 一直在 `ScopeCatalog` 與 `ResolveScopes` 裡，但從來沒有 policy 用它——
   在這一頁出現之前沒有任何頁面需要把關）。
   **補掉的是結構性的洞**：`HD_USER.ROLES` 全系統原本沒有任何寫入路徑（DB proc 只讀不寫、
@@ -223,14 +223,14 @@
   scope（角色名稱本身回答不了「他到底能做什麼」），用的是各服務驗權限的同一份實作
   （`ScopeResolver`，從 `HdUserRepository.ResolveScopes` 抽出來成靜態）。
   稽核 `auth.user.permission_update` 記 before/after——只記結果的話看不出是誰把權限加上去的。
-  **已實測（`.191`，2026-08-27）**：塞一列 `provisionedBy:"jit"` 的測試資料 → 畫面上排最前面／
+  **已實測（`.191`，2026-08-26）**：塞一列 `provisionedBy:"jit"` 的測試資料 → 畫面上排最前面／
   黃底／「自動註冊」→ 用 UI 指派角色 → `ROLES` 變 `[2]`、**`OTHERS` 的 `keycloakSub` 原封不動**、
   稽核留下 `rolesBefore:[] → rolesAfter:[2]`。第二項是「不覆寫 OTHERS」那個宣稱的證據——
   抹掉的話是靜默破壞：畫面一切正常，只有多院區的出口過濾之後莫名失效。
 - [x] **表格可用性（`0.1.0-alpha.14`）**：明確欄寬、列多時表格內捲動＋表頭 sticky、
   過長內容在格內捲動而非撐寬整表、**可拖曳調整欄寬**（`hdResizableTable`，通用，
   寬度存 localStorage；把手要在每次資料重繪後重掛，Blazor 換資料會重建 thead 的 DOM）。
-- [x] **預先建立＋停用（2026-08-27，主控台 `alpha.16`／DicomWeb `alpha.14`／Export `alpha.17`）**：
+- [x] **預先建立＋停用（2026-08-26，主控台 `alpha.16`／DicomWeb `alpha.14`／Export `alpha.17`）**：
   - **預先建立**：建的是「授權」不是「身分」——不碰 Keycloak，只先放好一列帶角色的 `HD_USER`，
     JIT 之後不會重複建，那個人第一次登入就能用。**打錯帳號是主要失敗模式**（角色會變孤兒且無錯誤訊息），
     無法事前驗證（沒有 Keycloak Admin API），改成事後看得出來：登入時回填 `keycloakSub`，
@@ -241,7 +241,7 @@
   - 實測：主控台停用 → `.199` 的 `/me` **401** → 啟用 → **同一顆 token** `/me` **200**。
     用同一顆 token 才排除得掉「其實只是 token 過期」。
   **停用的涵蓋範圍是三個入口**（主控台／DicomWeb／Export）。看片端的帳密登入不受影響，
-  且 **hd-web-server 不會為此修改**（2026-08-27 決定）——看片端切到院內 Keycloak 之後那條路退場，
+  且 **hd-web-server 不會為此修改**（2026-08-26 決定）——看片端切到院內 Keycloak 之後那條路退場，
   限制自然消失。在那之前要完全停掉一個人，得在 SSO 也停用。**UI 與交接文件都據實寫明**，
   不寫成「尚未支援」——那個字會讓人以為系統之後會自己補上。
   （曾評估「停用時抽換密碼 hash、啟用時放回」讓它對看片端也生效，不採用：那讓停用變成一個

@@ -6,7 +6,7 @@
 
 > **Export 的 MultiScheme 是照 DicomWeb 抄的**，三處值得注意：①`Keycloak.Authority` 走 `/etc/hd-export/keycloak.env` 而非 appsettings（各院之後自建 Keycloak，理由見 [deployment.md](deployment.md)「設定要放哪」）②沒設 Authority 就只收 API Key、不註冊 JWT scheme，服務照常運作 ③呼叫端是純前端時**還需要 CORS**，且要 expose `Content-Disposition`，否則前端讀不到下載檔名。
 
-## Keycloak 的佈署拓樸（2026-08-27 定案：固定架構）
+## Keycloak 的佈署拓樸（2026-08-26 定案：固定架構）
 
 **一個產品、兩種 Authority，依站台的網路環境決定：**
 
@@ -109,7 +109,7 @@
 **這個契約沒有發生。** 同事的**前端訂閱制系統**先上線了：使用者在那邊自行註冊、Keycloak 由他那端整合。
 於是註冊發生在我們看不到的地方，`HD_USER` 永遠不會長出來——症狀就是拿著合法 token 打 DicomWeb／Export 一律 **401**。
 
-### 現行：JIT 佈建（2026-08-27）
+### 現行：JIT 佈建（2026-08-26）
 
 **Keycloak 認得、但本系統沒有對應 `HD_USER` 時，就地建一筆零角色的使用者**，而不是拒絕。
 之後管理者再指派角色。等於把「建立當下同步」換成「第一次使用時補資料」。
@@ -147,7 +147,7 @@ JIT 沒有這個失敗模式：取消訂閱時 Keycloak 不發 token，人根本
 **驗證**：
 - **單元層**：`HdUserRepository` 對兩種真實 schema 各跑過 25 項斷言（若瑟原始 schema＝無 `ENABLE`；
   `.191` 型＝有 `ENABLE`），含 12 路併發只插一列、群組 2 缺席時大聲失敗、既有使用者解析不受影響。
-- **端到端（2026-08-27，`.199` 生產，dicomweb `1.0.0-alpha.10`／export `0.1.0-alpha.16`）**：
+- **端到端（2026-08-26，`.199` 生產，dicomweb `1.0.0-alpha.10`／export `0.1.0-alpha.16`）**：
   把 `.191` 的 `hdtest` 暫時改名造出「Keycloak 有、`HD_USER` 沒有」的狀態 →
   `/api/v1/auth/me` 從 10 個 scopes 變成 **200 且 `scopes:[]`**、QIDO 從 200 變成 **403（不是 401）**、
   DB 長出 `ROLES=[]`／`OTHERS.keycloakSub` 等於 token 的 `sub` 的一列 → 還原後全部回到原狀。

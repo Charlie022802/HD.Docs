@@ -36,6 +36,56 @@ MultiScheme 分派：帶 `hdp_` 前綴 → API Key 驗證；其他 Bearer → Ke
 
 回應：200 + `application/dicom+json` 陣列；無資料 204。
 
+### 多值欄位：查詢與解析（2026-08-27 實際被問過）
+
+`ModalitiesInStudy`（`00080061`）是 **VM 1-n 的多值欄位**，回應長這樣：
+
+```json
+"00080061": { "vr": "CS", "Value": ["US", "SR"] }
+```
+
+**`Value` 是陣列。** 呼叫端如果取 `Value[0]` 或直接當字串用，一份含報告的超音波檢查就只會
+顯示成其中一個。要完整顯示請把整個陣列接起來。
+
+#### 查詢時的分隔符
+
+| 寫法 | 標準？ | 我們支援 |
+|---|---|---|
+| `ModalitiesInStudy=US\SR`（percent-encode 成 `US%5CSR`） | **是**，DICOM 的 VM 分隔符 | ✅ |
+| `ModalitiesInStudy=US&ModalitiesInStudy=SR`（重複參數） | 常見慣例 | ✅ |
+| `ModalitiesInStudy=US,SR` | 否 | ✅（見下） |
+| `ModalitiesInStudy=US^SR` | 否 | ❌ 回 204 |
+
+**推薦用 `\` 並 percent-encode。** 反斜線在 query string 裡嚴格說不合法，多數伺服器容忍，
+但不保證中間的反向代理不動它；`URLSearchParams` 或 `encodeURIComponent` 會自動處理。
+
+逗號會通是**副作用**：ASP.NET 收到重複參數時用逗號併起來，所以我們把逗號也當分隔符——
+換一台別家的 DICOMweb 伺服器就不一定認，不要當成可移植的寫法。
+
+`^` **不是**多值分隔符（那是 DICOM 的**元件**分隔符，用在 `姓^名` 那種），送過去會被當成
+單一個 token，一筆都撈不到。
+
+#### 比對語意
+
+多值是「**含任一**」（OR），用 PostgreSQL 陣列 overlap（`&&`）實作：
+
+- **順序無關**：`US\SR` 與 `SR\US` 結果相同。
+- **token 精準**：不會像 `ILIKE %CT%` 那樣誤中 `OCT`／`CTA`。
+
+#### 回應的值順序
+
+**DICOM 沒有定義 `ModalitiesInStudy` 的值順序，呼叫端不該依賴它。**
+
+但我們仍做了一件事：把 **SR／PR／KO**（報告、呈現狀態、關鍵影像標記——都是附屬於影像的
+物件，不是檢查本身的 modality）**排到最後**，其餘維持原順序。
+
+原因是資料庫裡存的是**進檔順序**，一份超音波檢查很常是 `SR\US`（報告先進來），於是取
+`Value[0]` 的前端會把它標成「SR」。這個排序讓那種寫法拿到的是真正的影像 modality。
+
+> **這是體貼，不是契約。** 值的集合完全沒變、篩選也一直是順序無關的。
+> 不做字母序——那會讓 `CT\MR` 這種都是主要 modality 的組合被無意義地重排。
+
+
 ## 2. WADO-RS 取得（scope `dicomweb.read`）
 
 | Method | 路徑 | 回應 |

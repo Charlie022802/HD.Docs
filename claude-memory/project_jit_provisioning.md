@@ -9,7 +9,7 @@ metadata:
 原本 2026-08-06 定的「雙寫 provisioning」契約從來沒發生，於是 `HD_USER` 永遠不會長出來 ——
 拿合法 token 打 DicomWeb／Export 一律 **401**（`ctx.Fail("無對應 HD_USER")`）。
 
-**2026-08-27 改成 JIT 佈建**：Keycloak 認得但本系統沒有對應 `HD_USER` → 就地建一筆**零角色**的，
+**2026-08-26 改成 JIT 佈建**：Keycloak 認得但本系統沒有對應 `HD_USER` → 就地建一筆**零角色**的，
 而不是拒絕。`HdUserRepository.ResolveByIdAsync(userId, provisionIfMissing, ct)`（HD.Shared.Auth，
 DicomWeb／Export／AdminConsole 三支共用）。開關 `Keycloak__JitProvisionUsers`，**預設 false**。
 
@@ -31,7 +31,7 @@ DicomWeb／Export／AdminConsole 三支共用）。開關 `Keycloak__JitProvisio
 - **不要寫沒人讀的欄位**：`ENABLE`／`EXPIRE_DATE` 是 [[project_db_chain_drift]] 的第 4、5 個分岔項，
   若瑟這種舊站台根本沒有那兩欄 → `42703`。`OTHERS` 是 v2.0.35 才進鏈的，要條件式寫入。
 
-**已部署並端到端驗證（2026-08-27，`.199` 生產）**：dicomweb `1.0.0-alpha.10`／export `0.1.0-alpha.16`。
+**已部署並端到端驗證（2026-08-26，`.199` 生產）**：dicomweb `1.0.0-alpha.10`／export `0.1.0-alpha.16`。
 env 目錄是 **`hd-pacs-dicomweb`** 不是 `hd-dicomweb`（加到不存在的路徑不會報錯，只會靜默沒開）；
 兩個 unit（5080＋5081 UPS）共用同一份 envFiles。主控台（`.191`）刻意不開 —— 它本來就不會 401，
 而且三支共用同一張 `HD_USER`，人打過 `.199` 一次就在表裡了。
