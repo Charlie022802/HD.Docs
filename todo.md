@@ -183,6 +183,21 @@
 - [x] **groups claim（2026-08-09，同事需求）**：Keycloak `hd-api` scope 加 Group Membership mapper（claim=groups、Full path Off、access+ID token）→ 掛 `hd-api` 的 client 全部帶 groups；DicomWeb `/api/v1/auth/me` 回傳 groups（`782ed6f`，部署 .199 驗證：`["hyperdigital"]`）。提醒：groups 僅供顯示/分流，**授權仍查 DB**；若要群組→權限映射另議。
 
 ## HD 後端管理主控台（HD.AdminConsole）— 集中管理平面
+- [x] **系統資訊視窗（2026-08-26/27）**：右上角 info，三組（程式／執行時期／連線）。
+  排障第一句話——現場截這張圖就知道版本／環境／連到哪個 DB／SSO 指哪。**DICOMweb Manager 同步加上**
+  （`1.0.0-alpha.12`），那邊多「啟用模組」與「JIT 佈建」兩項：前者因為同一份程式碼會以不同模組
+  組合起多個 unit（5080=dicomweb+admin、5081=ups），後者只存在機器的 env 檔裡、畫面上原本看不出來。
+- [x] **互動渲染統一到 router 層（2026-08-27，`0.1.0-alpha.9`）**：原本四個頁面各自標 `@rendermode`，
+  MainLayout 留在靜態渲染——掛在它上面的 `@onclick` 不會執行、`@ref` 也跨不過邊界，於是同一個功能
+  得寫兩種版本。改成 `<Routes @rendermode="InteractiveServer" />` 後，`DotNetObjectReference` +
+  `show.bs.modal` 那整套繞法拆掉。**必要的連帶修正**：互動路由會攔截同源連結去比對路由，
+  指向非 Blazor 端點的連結要 `data-enhance-nav="false"`——`/logout` 與語言切換本來就有，
+  `LoginPrompt` 的 `/login` 沒有（靜態時不需要），不補的話按登入變 NotFound。
+- [x] **翻譯補齊（2026-08-27，`0.1.0-alpha.11` / DicomWeb `1.0.0-alpha.13`）**：裝置授權頁 60 個 key
+  從沒進過 resx、API 金鑰的權限名稱根本沒經過 localizer、Export 狀態的「錯誤」卡在另一本 resx。
+  **查法的教訓寫在 [i18n-plan.md](i18n-plan.md)「漏譯怎麼查」** —— 掃 `L["字面量"]` 只找得到一半，
+  動態查表點要另外枚舉；漏譯是靜默失敗（localizer 找不到就回傳 key，而 key 就是中文）。
+
 - [x] **第一鏟：骨架 + Keycloak SSO 登入整圈驗證（2026-08-06）**：Blazor Server + OIDC 授權碼導頁（定案：保持導頁、美化走 Keycloak theme）；登入卡/身分頁/RP-initiated 登出全通；鯨魚 logo。repo GitHub Charlie022802/HD.AdminConsole。
 - [ ] 請同事做 Keycloak login theme（HD 風格登入頁，全產品受益）。
 - [x] **API Key 管理搬入（2026-08-06，`f8533af`，對 .191 DB 實測）**：/apikeys 清單/建立/編輯/撤銷；Npgsql 直連 HD_API_KEY（與各服務驗證同表）；badge 產品配色+目錄排序+去黑話用語。授權 v1=登入即可管（scope 檢查待補）。
