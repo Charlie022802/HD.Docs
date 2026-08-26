@@ -33,7 +33,7 @@
 - [StudyClose flow](project_studyclose_flow.md) — STUDY_CLOSE map job (C# StudyClosedService rewrites files) → study_closed() DB proc fans out route/archive/callback/nearline;先改檔後扇出
 - [Shared logging](project_shared_logging.md) — HD.Shared.Logging 共用包(Serilog→HawkLog, CLEF+durable+自製 NDJSON formatter 避 v9 陣列坑)已建好+測過;各產品專案參考接入,pilot 未定;稽核走各自 DB 正本不走 HawkLog(無去重)
 - [版本雙來源](reference_version_two_sources.md) — hdctl 元件的版本號有 manifest 與 csproj 兩份,只改一邊會讓 `/health` 說謊(而它正是自動退版的依據);hdpack 已加護欄擋住
-- [指令路徑形式](feedback_shell_path_form.md) — 給使用者的 Windows 路徑寫 `D:\...` 不要寫 `/d/...`(那只有 Git Bash 通,PowerShell 會 No such file);跨機流程每步標明「哪台、哪個 shell」
+- [指令路徑形式](feedback_shell_path_form.md) — 給使用者的 Windows 路徑寫 `D:\...` 不要寫 `/d/...`(那只有 Git Bash 通,PowerShell 會 No such file);跨機流程每步標明「哪台、哪個 shell」;**VPN 異常時同一 IP 會連到別台機器且主機名一樣、分辨不出來——跨機操作前先驗身分**
 - [hdctl 進醫院主機](project_hdctl_hospital_host.md) — self-contained 元件踩出**四顆坑全修完**(執行位元/SELinux bin_t/hdpack 版本護欄靜默失效/InformationalVersion 讓 /healthz 說謊);**根源都是既有機制假設 exec=dotnet <dll>**;**「已驗 CentOS 7 glibc」是錯的已更正**(.163 其實是 RHEL 8;若瑟正式機是 RHEL 9.2/glibc 2.34,無疑慮)
 - [hdctl preserve 三性質](reference_hdctl_preserve.md) — 退版不帶設定(0.2.5 修)/跨版本改設定來源會讓退版後 active 卻全 500(0.2.6 警告)/**它會遮住壞掉的設定檔——既有安裝全正常,只有新醫院會炸**;「既有機器升級沒事」不足以證明包是好的
 - [版控慣例](feedback_versioning_convention.md) — 發布前語意版本固定、別每 build bump patch;序號只在交付時 +1;build 靠自動時間戳。細節在 user skill `hd-versioning`
