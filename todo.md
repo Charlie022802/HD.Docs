@@ -230,8 +230,21 @@
 - [x] **表格可用性（`0.1.0-alpha.14`）**：明確欄寬、列多時表格內捲動＋表頭 sticky、
   過長內容在格內捲動而非撐寬整表、**可拖曳調整欄寬**（`hdResizableTable`，通用，
   寬度存 localStorage；把手要在每次資料重繪後重掛，Blazor 換資料會重建 thead 的 DOM）。
-- [ ] 使用者管理後續：`ENABLE` 的實際攔截（要先決定舊站台沒有那一欄怎麼辦）、
-  `OTHERS.siteCode` 的編輯（多院區）、以及「停用 vs 刪除」的語意。
+- [x] **預先建立＋停用（2026-08-27，主控台 `alpha.16`／DicomWeb `alpha.14`／Export `alpha.17`）**：
+  - **預先建立**：建的是「授權」不是「身分」——不碰 Keycloak，只先放好一列帶角色的 `HD_USER`，
+    JIT 之後不會重複建，那個人第一次登入就能用。**打錯帳號是主要失敗模式**（角色會變孤兒且無錯誤訊息），
+    無法事前驗證（沒有 Keycloak Admin API），改成事後看得出來：登入時回填 `keycloakSub`，
+    「有沒有 sub」＝「有沒有真的登入過」→ 清單顯示「尚未登入」。
+  - **停用取代刪除**（使用者決定不做刪除）。`ENABLE` 由 **v2.0.39** 補進更新鏈（第 4、5 個分岔項）。
+    讀用 `COALESCE((to_jsonb(u.*) ->> 'ENABLE')::boolean, true)`——同一句 SQL 在有沒有那一欄的站台
+    都跑得動，且不必在驗 token 的熱路徑多打一次 `information_schema`；寫之前先探測，沒有就不提供選項。
+  - 實測：主控台停用 → `.199` 的 `/me` **401** → 啟用 → **同一顆 token** `/me` **200**。
+    用同一顆 token 才排除得掉「其實只是 token 過期」。
+- [ ] **hd-web-server 的 `loginCheck` 要加 `ENABLE` 檢查**（同事的 repo）。不加的話醫院端看片端的
+  帳密登入不受停用影響，而畫面顯示「已停用」——**會騙人的開關比沒有開關更糟**。
+  確認框裡已明說這件事，要交接的內容在 [keycloak-user-provisioning.md](keycloak-user-provisioning.md)。
+- [ ] 使用者管理後續：`OTHERS.siteCode` 的編輯（多院區）、`EXPIRE_DATE` 的實際攔截
+  （欄位已隨 v2.0.39 補上，但還沒有人讀）、`name`／`email` 是否要每次登入從 token 同步。
 - [ ] **角色本身的 CRUD 介面**：現在只能指派既有角色，建立／編輯角色仍得直接打 DB。
   那六支 `HD_ROLE_RBAC_functions.sql`（在 HD.Pacs.DicomWeb repo 的 `db/functions/`）
   **不在更新鏈裡** —— `.191` 有、2026-07-20 的 dump 與若瑟都沒有，是**第六個分岔項**。
