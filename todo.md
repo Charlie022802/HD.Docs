@@ -180,10 +180,13 @@
   Viewer 的 ①②③ 已完成並 push，但**第一次真的 Viewer 走這條路還沒發生過**，
   到目前為止全是 curl 與測試程式驗契約。④（移除 `SafePostgresConnection`）**要等端到端
   驗證過再做**，否則所有現場立刻不能用。
-  - 現況：`.163`（CentOS 7，若瑟形態）與 `.199`（AlmaLinux，newdicomweb）都跑
+  - 現況：`.163`（**CentOS 8 / glibc 2.28**，內網測試機）與 `.199`（AlmaLinux，newdicomweb）都跑
     `hd-viewerapi-0.1.0-alpha.3`，聽 **5100**，`/healthz` 正常。設定仍是 `CHANGE_ME`。
-  - **已驗到的關鍵事實：self-contained 的 .NET 10 在 CentOS 7 的 glibc 上跑得起來。**
-    這件事不成立的話整個打包策略要重來（得改 framework-dependent + 逐院裝 runtime）。
+  - ~~已驗到 self-contained 的 .NET 10 在 CentOS 7 的 glibc 上跑得起來~~
+    **⚠️ 2026-08-26 更正：`.163` 其實是 CentOS 8 / glibc 2.28，不是 CentOS 7**
+    （我從「Python 3.6」推論成 CentOS 7，但 RHEL 8 家族的 platform-python 也是 3.6）。
+    **不影響結論**：若瑟正式機（`10.10.1.148`）實測是 **RHEL 9.2 / glibc 2.34**，比 `.163` 還新，
+    self-contained 沒有相容性疑慮。真正沒驗過的是 CentOS 7 那種老環境，而目前沒有已知醫院是那個版本。
   - **監聽埠 8080 → 5100**：8080 是醫院既有的 hd-web-server 在用，viewerapi 要同機共存
     就不能搶。5100 與 DicomWeb 5080、Export 5090、AdminConsole 5200 同一段。
   - **2026-08-25 兩條路都已在真機端到端驗過（伺服器端）**：同一支 viewerapi、同一組 API，

@@ -6,7 +6,7 @@ metadata:
   type: project
 ---
 
-**2026-08-25 把 `viewerapi` 佈到 `.163`(CentOS 7,若瑟形態)與 `.199`(AlmaLinux)時,
+**2026-08-25 把 `viewerapi` 佈到 `.163`(內網測試機,若瑟形態)與 `.199`(AlmaLinux)時,
 一路撞出四顆坑——而四顆是同一個根源:`viewerapi` 是第一個 self-contained 元件,
 `exec` 是二進位本身,不是 `dotnet app/xxx.dll`,而既有機制全是為後者寫的。**
 `.191`/`.199` 是我們自己養的機器(hdadmin 早就有、Python 也新),所以這半年都沒暴露。
@@ -32,11 +32,16 @@ metadata:
   算的時候 `$(Version)` 還是共用的 2.4.0,專案覆寫的 alpha 版號還沒生效 → `/healthz`
   報看片端的 `2.4.0`。搬到 `Directory.Build.targets` 就對(該檔本來就是為「等 csproj 定義完」而存在)。
 
-**已驗到的關鍵事實:self-contained 的 .NET 10 在 CentOS 7 的 glibc 上跑得起來。**
-不成立的話整個打包策略要重來(改 framework-dependent 逐院裝 runtime)。
+**⚠️ 更正(2026-08-26):原本這裡寫「已驗證 self-contained 的 .NET 10 跑得動 CentOS 7 的 glibc」,
+那是錯的。** 實測 `.163` 是 **CentOS 8 / glibc 2.28**,不是 CentOS 7。
+我當初從「Python 3.6」推論成 CentOS 7,但 **RHEL 8 家族的 platform-python 也是 3.6**,推論不成立。
 
-**沒直接驗到的**:`.163` 是 `Permissive`,所以「CentOS 7 + Enforcing」這組合沒實證。
-但標記機制在 CentOS 7 確實生效(`ls -Z` 已是 `bin_t`),`.199` 的 Enforcing 也證明 `bin_t` 夠用。
+**不過這個更正不影響結論**:若瑟正式機(`10.10.1.148`)實測是 **RHEL 9.2 / glibc 2.34**,
+比 `.163`(glibc 2.28)還新,self-contained 完全沒有相容性疑慮。真正沒被驗過的是「CentOS 7」這種老環境,
+而目前**沒有已知的醫院是那個版本**。
+
+**沒直接驗到的**:`.163` 是 `Permissive`,所以「CentOS 8 + Enforcing」這組合沒實證。
+但標記機制在 CentOS 8 確實生效(`ls -Z` 已是 `bin_t`),`.199` 的 Enforcing 也證明 `bin_t` 夠用。
 真醫院是 Enforcing 的話,看安裝輸出有沒有印 `SELinux 標記 bin_t` 就知道。
 
 **教訓:下次加任何元件層級的機制,先問「它是不是假設 exec = `dotnet <dll>`」。**
