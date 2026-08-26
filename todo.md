@@ -48,6 +48,9 @@
   - **已知的不對稱**：UPS 建立 workitem 會橋接進 `insert_worklist`，所以 `UPS_WORKITEM` 有蓋章、連帶產生的 `HDM_SERVICE_REQUEST` 沒有。
   - 既有 worklist 資料怎麼歸戶也要一併決定。
 - [ ] 管理 UI 要能設定使用者的院區（`HD_USER.OTHERS.siteCode`），目前只能手改 DB。
+  **⚠️ 2026-08-27 起 `HD_USER` 要退場（REQ-024）**，院區改成 Keycloak 的 user attribute（隨 token 帶進來）；
+  `site_scope_for_user(user_id)` 這支 proc 屆時**不能再自己查 DB，要改成由 C# 把 siteCode 當參數傳進去**。
+  **動工前先看 REQ-024 的執行順序**，免得做完又要重來。
 - [ ] Site 功能完善：管理 UI 的院區 CRU（**不含 D**——只停用不刪除，見設計正本「院區的生命週期」）、AE 掛院區的介面、未歸戶 study 的認領流程。
 - [ ] QIDO/WADO 依呼叫者院區過濾＋PostgreSQL RLS 護欄。
 - [ ] 新版 DicomWebViewer：院區顯示（順帶 Keycloak＋i18n 一起上）。
@@ -142,6 +145,9 @@
 - [x] **共享事件表落地（2026-08-06 程式面全完成）**：v2.0.27 migration（PRODUCT/CATEGORY 欄+索引，Database `e36249a`）；共用 `DbAuditLogger`（HD.Shared `69e08a2`）；DicomWeb 補欄+category 粗分（`a15cb65`）、Export（`ad734b3`）、主控台（`34ca38d`）皆改寫事件表。**全部完成（2026-08-06 晚）**：.191 已套 migration；DicomWeb（build 205757）/Export（205819）已重部署 .199（部署慣例改為 ~/deploy-dicomweb、~/deploy-export 分資料夾）；**三產品實測入表**：dicomweb/operation（qido）、export/audit（壞 key 攔截）、admin-console/audit（金鑰生命週期），SOURCE_IP 皆正確（VPN 來源 192.168.68.253／本機 ::1）。
 - [x] **DicomWeb 切 Keycloak（2026-08-07/08，HD.Pacs.DicomWeb `4c9535b`→`ed4156b`、HD.Shared `79ee858`，部署 .199 驗證通過）**：Admin UI=OIDC 導頁（登入卡→SSO→後台→RP-initiated 登出）；API JWT=AddKeycloakJwtBearer（aud=hd-pacs 嚴格）+OnTokenValidated 查 HD_USER 補 scopes（無對應→401）；退役 JwtIssuer/DevSigningKeyProvider/dev-token/固定管理帳密/HD_USER.PASSWORD 驗證。新坑三枚：**登出需 id_token_hint→必須 SaveTokens=true**；**DefaultChallengeScheme 別設 OIDC**（未登入會跳過登入卡直彈 Keycloak）；**Valid post logout redirect URIs 用 `+`**。單元 87/87、整合 31/31 綠。
 - [ ] **Viewer 切 Keycloak — 雙軌（2026-08-17 決策）**：醫院封閉網路連不到 sso.hdtech.tw，**之後會在各醫院內部自建 Keycloak**（尚未架設）。→ 登入這塊**可提前實作**（Authority 指院內位址、由設定決定），**但不替換現行 WebApi 帳密登入**（`LoginForm.CheckUser` → `/api/v2.0/user/login`）；兩條路並存、設定切換，院內 SSO 到位才開。AuthZ 仍查 DB。詳 [systems/identity.md](systems/identity.md)。
+  **⚠️ 2026-08-27 推翻「不替換」**：hd-web-server 確定淘汰，它就是那條帳密路的實作，
+  沒有第二軌可留 → 看片端的 Keycloak 登入從「並存」變成**取代**，而且是 REQ-024 整條路的**瓶頸**
+  （必須先於 hd-web-server 淘汰）。封閉網路根因與 OIDC 九坑仍然有效。
 - [x] ApiTest / TestClient 工具更新（2026-08-08，`f033af4`）：登入改 Keycloak password grant 或直接貼 API Key（TestClient 帳號欄貼 `hdp_` 開頭免密碼）；金鑰管理頁/測試段移除（歸主控台）；ApiTest 加「dev-token 與 /api/v1/api-keys 應 404」防呆；Smoke 流程 Import 明帶 X-Calling-AE-Title。
 - [x] 抽跨產品共用 Auth lib（2026-08-06 完成：HD.Shared.Auth＝Keycloak 取/驗 token＋API Key handler＋ScopeCatalog＋HdUserRepository；DicomWeb/Export 已用）。
 - [x] Keycloak 驗證面全通：audience mapper（hd-api→hd-pacs）嚴格驗證、OIDC 授權碼登入（主控台整圈）。

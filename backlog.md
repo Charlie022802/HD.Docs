@@ -148,6 +148,37 @@
   - **備援那份的新鮮度（保留待議，2026-08-21 決定先不定）**：如果「上傳」到「歸檔成一份」之間隔了很久，而中間又發生校正或 QC，那備援存的就是過期的值。第二次拿得到時沒差（優先用新的），但**正是 PACS 掛掉、只能用備援的那個時候，它是舊的**。**刷新的機制與時機留到後面討論** —— 記在這裡是因為它是備援品質的上限，動工前要回頭看一眼，不是現在要解。
 - **與既有決策的關係**：[media-export-redesign](media-export-redesign.md) 第 7 節記的「archive 流程淘汰」，範圍**只是「新的 export／打包流程裡不放 archive」** —— 那個用途不納入新的 `PACKAGE_JOB` 設計、不遷移，`archiveItems`（打包前先從 nearline 撈回檔案）也一併退場。**它跟 archive 功能本身無關，更不是在講 HD-Archive。** 兩件事各自獨立，不要當成因果。
 
+### REQ-024　身分與角色全交 Keycloak：`HD_USER` 退場
+- **狀態**：架構定案（2026-08-27），待實作。**正本 [systems/identity.md](systems/identity.md)「2026-08-27 定案」**
+- **系統**：HDPACS DB、HD.Shared.Auth、AdminConsole、DicomWeb、Export、看片端、（新）報告系統
+- **決策**：使用者的**身分與角色全部交 Keycloak**，HDPACS 不再存帳號、**也不再存授權**。`HD_USER`／`HD_USER_CONFIG`／`HD_ROLE`／`HD_GROUP`／整個 `report` schema 退場。本地只留一張**唯讀投影表** `HD_IDENTITY_MIRROR`，供查詢與備份，**絕不參與授權判斷**。
+- **成立的四個前提（都已拍板）**：hd-web-server 淘汰（`HD_USER.PASSWORD` 最後的消費者）／報告換全新系統（`report` schema 淘汰）／看片端重做／`MAP_JOB.HD_USER_UUID` 判定不重要。這四件事清掉指向 `HD_USER` 的**全部 12 條 FK**。**少一件就破功。**
+- **不受影響**：主 PACS 九支、日誌平台、HD.Animal —— 它們認 AE Title 或 API Key，不碰使用者。
+- **授權對應**（Keycloak 原生，不用自己發明）：`ScopeCatalog` 的一個 scope ＝ **client role**（掛 client `hd-pacs` 底下）；一個 `HD_ROLE` ＝ **composite role**（自動展開進 token）。各服務拿到 token 就是最終 scope 清單，**一次 DB 查詢都不用**。
+- **四個必守約束**：①**一定用 client roles 不用 realm roles**（realm 是同事在管的，這是「正本住別人家」唯一有效的隔離）②`ScopeCatalog` 留在程式碼當共同語言 —— **API Key 那條路仍是本地的**，兩個授權來源必須產出一字不差的 scope 字串 ③`hdUserUuid` 由我們的介面產生（介面是我們寫的，不需要回寫契約），**必須設 admin-only attribute**（能自改＝能冒充歷史紀錄）④**DB proc 要改**（`site_scope_for_user`、六支 `HD_ROLE_RBAC_functions` 改吃參數）—— 這是實質工作量。
+- **四個要接受的代價**：撤權延遲＝access token 存活期（15 分，**會讓驗證失去鑑別力**）／token 變大（nginx proxy buffer 502 那個坑會回來）／「誰有這個權限」不能 SQL 查／Keycloak 成單點、備份責任變重。
+- **不要再談「請同事的系統呼叫我們的 API」**：這個契約 2026-08-06 定過、從來沒發生。而且**入口本來就已經集中在 Keycloak** —— 他寫、我們也寫，寫的是同一本。
+- **該向同事要的三件事（給權限，不是改流程）**：`hd-admin-console` confidential client + service account roles（`view-users`/`query-users`/`manage-users`/`view-realm`/`view-events`）／`hdUserUuid` 設 admin-only／client `hd-pacs` 的 roles 命名空間歸我們管。secret 放 `/etc/hd-admin-console/keycloak.env`，**不要放 appsettings**（preserve 會擋）。
+- **`HD.Identity`**：介面背後要是一支服務，**不要直接在 Blazor 頁面打 Admin API**。它是唯一碰 Keycloak Admin API 的地方（composite 展開、命名規則、`hdUserUuid` 生成都在這），之後各系統接它而不是各自接。**四個已知坑**：Admin base 不是 Authority 接路徑（要拆 host+realm 重組）／`PUT /users/{id}` 的 attributes 是**整個覆寫不是 merge**（先 GET 再合併）／`enabled=false` 不撤已發出的 token／service account 自己也是一個 user 要過濾。
+- **執行順序（有硬相依）**：
+  1. `v2.0.39` 的 `ENABLE`／`EXPIRE_DATE` 標記作廢（已佈 `.191`，腳本不動、只加追記）**（已完成）**
+  2. ~~`HD.Identity` 骨架 + `KeycloakAdminClient`~~ **已完成（2026-08-27，未 commit）**：
+     `HD.Shared/src/HD.Shared.Identity`（相依方向 Identity→Auth，用專案相依擋住「投影表不參與授權」）、
+     `db_update_v2.0.40.sql` 建 `HD_IDENTITY_MIRROR`、主控台 `/identity` 新頁（與 `/users` 並存）、
+     40 條測試且逐條做過突變驗證。**尚未對真實 Keycloak 實測**（缺 secret）。
+     未做：職務角色建立 UI、`siteCode` 編輯 UI（服務層都已具備，只差介面）。
+  3. 向同事要那三件事
+  4. `ScopeCatalog` → Keycloak client roles 同步；`HD_ROLE` 轉 composite roles
+  5. `HD.Shared.Auth` 改成「權限直接讀 token」，不再查 DB
+  6. **看片端改接 Keycloak 登入 —— 整條路的瓶頸**（現在唯一的路是 hd-web-server 帳密）
+  7. hd-web-server 淘汰
+  8. 報告新系統上線 + 舊報告匯出成不可變快照
+  9. `HD_USER`／`HD_USER_CONFIG`／`HD_ROLE`／`HD_GROUP`／`report` schema 收掉
+- **推翻的既有決策**：[todo.md](todo.md)「Viewer 切 Keycloak — 雙軌」的**「不替換」**部分（hd-web-server 淘汰後沒有第二軌可留）；以及同日稍早的「`HD_PRINCIPAL` 三張表」版本（把授權留本地，在報告與看片端要拆成獨立系統之後不成立）。
+- **舊報告資料**：若瑟現有 `REPORT_SAVED` 是病歷、有法定保存年限。**建議匯出成不可變快照（PDF／報告文件）** —— 人名變純字串，識別問題徹底消滅；材料現成（該表本來就有 `REPORT_PHYSICIAN_NAME`／`PERFORMING_PHYSICIAN_NAME` 快照欄位）。另兩條路：遷進新系統（mapping 問題整包跟著搬）、舊 HDPACS 唯讀保留（`HD_USER` 就拔不掉，計畫在若瑟破功）。
+- **順手查證**：`HD_ACTIVE_USERS` **是以前 debug 多建的**（使用者已確認），只存在若瑟正式機、不在任何其他 dump、不在更新鏈、整個 codebase 零引用。**不是**更新鏈分岔項，拔 FK 時 `DROP` 掉即可。
+- **未決**：`HD_USER_CONFIG` 的設定內容搬去哪（跟著看片端重做走；**個人偏好不要進 Keycloak attributes**）。
+
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
 - **狀態**：提出（2026-08-03，觀察）
 - **系統**：DicomWeb（HD.Pacs.DicomWeb）

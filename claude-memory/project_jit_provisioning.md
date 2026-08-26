@@ -5,6 +5,12 @@ metadata:
   type: project
 ---
 
+> **2026-08-27 更新：「建 HD_USER」整段作廢，但問題意識仍有效。** 見 [[project-hd-user-retirement]] ——
+> 新架構下權限直接從 token 讀,**「沒有對應 HD_USER 就 401」這個症狀從根上消失**,不需要就地建零角色使用者。
+> 取而代之:**第一次看到沒有 hdUserUuid 的人,補生成一個寫回 Keycloak**。
+> 三個坑的第 1(advisory lock)、第 3(ENABLE/EXPIRE_DATE)隨之作廢;
+> **第 2 個仍值得記住:「取最小值當預設」在權限領域會安靜地挑到最高權限那一個**(MIN(GROUP_REF)=0=admin)。
+
 同事的**前端訂閱制系統**先上線了：使用者在那邊自行註冊、Keycloak 在他那端整合。
 原本 2026-08-06 定的「雙寫 provisioning」契約從來沒發生，於是 `HD_USER` 永遠不會長出來 ——
 拿合法 token 打 DicomWeb／Export 一律 **401**（`ctx.Fail("無對應 HD_USER")`）。
