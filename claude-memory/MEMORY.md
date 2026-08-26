@@ -30,6 +30,7 @@
 - [PACS DB schema](reference_pacs_db_schema.md) — DB schema SQL at D:\Dev\HyperDigital\Database\ (latest: HDPACS_20260811.sql,自 .191 拉);要動 DB 前若 dump 可能過時,主動請使用者重拉
 - [nearline 旗標競態](project_nearline_flag_race.md) — IS_NEARLINE_CACHED 是重算的(靜止時準),失效是**競態**:新物件到重算之間旗標還是舊 true;刪除那端 2.0.27 已修、insert_study_job 那端未修(從 2.0.1 就在、六次改動沒碰過)
 - [若瑟現場](project_josef_site.md) — 正式主機 **10.10.1.148**(HDPACS148,別跟測試機 .163 混);DB 2.0.22+已補刪除保護 hotfix(版本號沒動);儲存三層與餘裕(nearline 約 320 天);**DB 本身自 2026-04 沒備份**
+- [DB 更新鏈分岔](project_db_chain_drift.md) — **更新鏈不完整**:有些結構變更只在 .191(從 dump 建的)、從沒進腳本(HD_USER_AUDIT_LOG/HD_USER.OTHERS/insert_routing_job);**舊站台跑完整條鏈也到不了 .191 的狀態**,而且只在 .191 驗證永遠驗不出來
 - [StudyClose flow](project_studyclose_flow.md) — STUDY_CLOSE map job (C# StudyClosedService rewrites files) → study_closed() DB proc fans out route/archive/callback/nearline;先改檔後扇出
 - [Shared logging](project_shared_logging.md) — HD.Shared.Logging 共用包(Serilog→HawkLog, CLEF+durable+自製 NDJSON formatter 避 v9 陣列坑)已建好+測過;各產品專案參考接入,pilot 未定;稽核走各自 DB 正本不走 HawkLog(無去重)
 - [版本雙來源](reference_version_two_sources.md) — hdctl 元件的版本號有 manifest 與 csproj 兩份,只改一邊會讓 `/health` 說謊(而它正是自動退版的依據);hdpack 已加護欄擋住
