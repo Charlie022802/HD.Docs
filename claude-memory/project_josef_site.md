@@ -22,6 +22,23 @@ metadata:
 - 正式升到 2.0.27 尚未規劃;2.0.23~2.0.26 動到進檔主幹,舊版 PACS 服務相容性要另評估。
 - 實測「旗標說有 nearline、實際沒有」的檢查數 = **0**(靜止時旗標是準的,失效是競態)。
 
+## 執行環境(2026-08-26 實測)
+- **PostgreSQL 16.0** —— 很新,2.0.23~2.0.27 的語法不會有問題。
+- **dotnet 只有 6.0.22**(ASP.NET Core 6 + NETCore 6),**沒有 8 也沒有 10**。
+  而我們的原始碼現在是 **net10.0** → 若瑟跑的服務**必然是 net6 時代的 build**。
+  **日後要在若瑟裝我們的新元件,一定得 self-contained**(glibc 2.34 沒問題),或先裝 .NET 10 runtime。
+- SELinux **Permissive**。
+- `/home/HD/service/` 下 17 個目錄,執行中 14 支:archive-manager / cache-delete /
+  dicom-service-manager / dicom-to-image / dicom-to-video / dicom-transmit /
+  dicom-transposition / media-package / pacs / web-dicom-scu / web-server /
+  workflow-manager / worklist-modify / worklist-server。
+
+**⚠️ 服務版本號判斷不了新舊。** `deps.json` 顯示一律 `HD.*/2.0.4`,但**原始碼的 csproj
+現在也還是 `<Version>2.0.4</Version>`** —— 那個欄位自 net10 遷移後就沒動過
+(實際在動的是 hdctl 元件版號,`.191` 是 `pacs 2.0.13`)。
+所以「若瑟 2.0.4、我們也 2.0.4」**不代表一樣新**,只代表那個欄位沒人維護。
+要判斷年份看檔案時間與 `runtimeconfig.json` 的 tfm。這是「版本說謊」的靜態版本。
+
 ## 儲存(2026-08-26 實測)
 | 用途 | 路徑 | 實體 | 餘裕 |
 |---|---|---|---|
