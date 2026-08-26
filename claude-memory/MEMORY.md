@@ -34,6 +34,7 @@
 - [版本雙來源](reference_version_two_sources.md) — hdctl 元件的版本號有 manifest 與 csproj 兩份,只改一邊會讓 `/health` 說謊(而它正是自動退版的依據);hdpack 已加護欄擋住
 - [指令路徑形式](feedback_shell_path_form.md) — 給使用者的 Windows 路徑寫 `D:\...` 不要寫 `/d/...`(那只有 Git Bash 通,PowerShell 會 No such file);跨機流程每步標明「哪台、哪個 shell」
 - [hdctl 進醫院主機](project_hdctl_hospital_host.md) — self-contained 元件踩出**四顆坑全修完**(執行位元/SELinux bin_t/hdpack 版本護欄靜默失效/InformationalVersion 讓 /healthz 說謊);**根源都是既有機制假設 exec=dotnet <dll>**;已驗 .NET 10 self-contained 跑得動 CentOS 7 glibc
+- [hdctl preserve 三性質](reference_hdctl_preserve.md) — 退版不帶設定(0.2.5 修)/跨版本改設定來源會讓退版後 active 卻全 500(0.2.6 警告)/**它會遮住壞掉的設定檔——既有安裝全正常,只有新醫院會炸**;「既有機器升級沒事」不足以證明包是好的
 - [版控慣例](feedback_versioning_convention.md) — 發布前語意版本固定、別每 build bump patch;序號只在交付時 +1;build 靠自動時間戳。細節在 user skill `hd-versioning`
 - [DicomWeb 實作雙軌](project_dicomweb_impl_split.md) — 生產(.199)用 Infrastructure 的 HdPacs*(Dapper→HDPACS RC_*)版,非 Application EF 版;改生產要改 HdPacs*。QIDO 回 transfer syntax(0008,3002)已做:STOW 併入 DATASET jsonb→QIDO 取值,僅新資料有。WADO 視訊短路待補 HdPacs 版
 - [DicomWeb 三強化](project_dicomweb_features.md) — 稽核緩衝+Admin登入+WADO匿名+授權收斂 全DONE+部署.199(commit 009b754)。金鑰管理改in-process(Blazor電路無HttpContext)、admin.api_keys改綁dicomWeb.manageApiKeys、AE下拉排AE_REF=1+上傳必填、重名擋、複製鈕HTTP fallback
