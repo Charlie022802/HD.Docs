@@ -169,7 +169,11 @@
      未做：職務角色建立 UI、`siteCode` 編輯 UI（服務層都已具備，只差介面）。
   3. 向同事要那三件事
   4. `ScopeCatalog` → Keycloak client roles 同步；`HD_ROLE` 轉 composite roles
-  5. `HD.Shared.Auth` 改成「權限直接讀 token」，不再查 DB
+  5. ~~`HD.Shared.Auth` 改成「權限直接讀 token」~~ **已實作、預設關閉（2026-08-27）**：
+     `TokenScopeResolver` 讀 `resource_access.{RoleClientId}.roles`，產出與舊路徑同一種 scope 字串，
+     下游 policy 零改動；開關 `Keycloak:ScopesFromToken`（預設 false）＋ `RoleClientId`，三支服務都接好。
+     只認 client roles、不認 realm roles；這條路徑沒有本地停用旗標（交給 Keycloak）。
+     **翻開關前必須先把 ScopeCatalog 同步到 Keycloak 並指派角色**，否則所有人零權限。
   6. **看片端改接 Keycloak 登入 —— 整條路的瓶頸**（現在唯一的路是 hd-web-server 帳密）
   7. hd-web-server 淘汰
   8. 報告新系統上線 + 舊報告匯出成不可變快照

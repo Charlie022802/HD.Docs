@@ -155,6 +155,24 @@ secret 放 `/etc/hd-admin-console/keycloak.env`，**不要放 appsettings**—�
 >   識別碼每次重產、角色改成全刪再全加、只抓第一頁、不濾 service account、
 >   生效權限改看直接指派、token provider 改成 scoped…）確認測試都會紅。
 >   綠燈只證明沒壞，突變才證明測得到。
+> **執行順序第 5 步（權限直接讀 token）也已實作，但預設關閉（2026-08-27）。**
+>
+> - `TokenScopeResolver`（`HD.Shared.Auth`）從 `resource_access.{RoleClientId}.roles` 取 scope，
+>   **產出與 `ScopeResolver.FromAccessList` 同一種東西**（scope 字串），所以下游授權 policy 一行都不用改。
+> - 開關 `Keycloak:ScopesFromToken`（**預設 false**）＋ `Keycloak:RoleClientId`（預設 `hd-pacs`）。
+>   設定走環境變數，理由同 `JitProvisionUsers`。DicomWeb／Export／主控台三支都接好了。
+> - **只認 client roles，不認 realm roles**，即使 realm 裡有同名角色也不採用（有測試釘住）。
+> - **這條路徑沒有「帳號已停用」那一道，而且是對的**：停用交給 Keycloak，停用的人換不到 token。
+>   留一份本地停用旗標會變成第二個正本。代價是撤權延遲＝access token 存活期。
+> - 零 scope 時會 log 出**為什麼**：沒有 `resource_access`（client scope 沒掛／`MapInboundClaims` 沒關）、
+>   權限被建成 realm role、`RoleClientId` 對不上。這三種的外顯症狀完全一樣（登入成功、每個動作 403），
+>   不指名的話只能去 Keycloak 一層層翻。
+> - 17 條測試，同樣做過突變驗證（不過濾 ScopeCatalog／不分 client／混入 realm role／
+>   不解釋原因／少驗一層 `ValueKind`）—— 最後那條原本就是真的缺陷，是測試先抓到的。
+>
+> **翻開關的順序不能顛倒**：先「同步權限清單」把 `ScopeCatalog` 建到 Keycloak → 指派角色 →
+> 確認 token 真的帶得到 → 最後才 `ScopesFromToken=true`。順序錯了所有人會變成零權限。
+>
 > - **還沒做**：對真實 Keycloak 的實測（要 secret）／職務角色的建立介面
 >   （`IdentityService.SaveJobRoleAsync` 已經寫好，但頁面上只讀不寫，現階段要在 Keycloak 直接建 composite role）／
 >   `siteCode` 的編輯介面（`SetSiteCodeAsync` 同上）。
