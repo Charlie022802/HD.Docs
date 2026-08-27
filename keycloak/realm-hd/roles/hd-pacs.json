@@ -1,0 +1,103 @@
+{
+  "client": "hd-pacs",
+  "roleCount": 17,
+  "roles": [
+    {
+      "composite": false,
+      "description": "金鑰管理",
+      "name": "admin.api_keys"
+    },
+    {
+      "composite": false,
+      "description": "稽核查詢",
+      "name": "admin.audit"
+    },
+    {
+      "composite": false,
+      "description": "裝置授權管理",
+      "name": "admin.licenses"
+    },
+    {
+      "composite": false,
+      "description": "系統設定",
+      "name": "admin.settings"
+    },
+    {
+      "composite": false,
+      "description": "使用者管理",
+      "name": "admin.users"
+    },
+    {
+      "composite": false,
+      "description": "影像刪除",
+      "name": "dicomweb.delete"
+    },
+    {
+      "composite": false,
+      "description": "影像查詢／讀取",
+      "name": "dicomweb.read"
+    },
+    {
+      "composite": false,
+      "description": "影像上傳",
+      "name": "dicomweb.write"
+    },
+    {
+      "composite": false,
+      "description": "匯出查詢／下載",
+      "name": "export.read"
+    },
+    {
+      "composite": false,
+      "description": "建立匯出打包",
+      "name": "export.write"
+    },
+    {
+      "composite": false,
+      "description": "影像匯入",
+      "name": "import.write"
+    },
+    {
+      "composite": true,
+      "composites": [
+        "hd-pacs:admin.licenses"
+      ],
+      "description": "職務：裝置授權簽發者。\n展開為 admin.licenses。\n與 pacs-admin 分開的原因：簽發會動到私鑰，等於能發出可執行的授權，不該隨一般管理權限一起給。\n命名慣例：職務不含點號，權限一律含點號。",
+      "name": "license-issuer"
+    },
+    {
+      "composite": true,
+      "composites": [
+        "hd-pacs:admin.api_keys",
+        "hd-pacs:admin.audit",
+        "hd-pacs:admin.settings",
+        "hd-pacs:admin.users",
+        "hd-pacs:dicomweb.read",
+        "hd-pacs:export.read",
+        "hd-pacs:export.write"
+      ],
+      "description": "職務：PACS 系統管理員。\n展開為 admin.users / admin.audit / admin.settings / admin.api_keys / dicomweb.read / export.read / export.write。\n不含 admin.licenses —— 裝置授權簽發會動到私鑰，另外用 license-issuer 授予。\n命名慣例：職務不含點號，權限一律含點號。",
+      "name": "pacs-admin"
+    },
+    {
+      "composite": false,
+      "description": "報告讀取",
+      "name": "report.read"
+    },
+    {
+      "composite": false,
+      "description": "報告寫入",
+      "name": "report.write"
+    },
+    {
+      "composite": false,
+      "description": "工作清單查詢",
+      "name": "workitem.read"
+    },
+    {
+      "composite": false,
+      "description": "工作清單寫入",
+      "name": "workitem.write"
+    }
+  ]
+}

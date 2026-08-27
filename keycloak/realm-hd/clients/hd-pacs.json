@@ -1,0 +1,63 @@
+{
+  "access": {
+    "configure": true,
+    "manage": true,
+    "view": true
+  },
+  "adminUrl": "",
+  "alwaysDisplayInConsole": false,
+  "attributes": {
+    "backchannel.logout.revoke.offline.tokens": "false",
+    "backchannel.logout.session.required": "true",
+    "client.secret.creation.time": "1787811966",
+    "display.on.consent.screen": "false",
+    "frontchannel.logout.session.required": "true",
+    "oauth2.device.authorization.grant.enabled": "false",
+    "oidc.ciba.grant.enabled": "false",
+    "realm_client": "false"
+  },
+  "authenticationFlowBindingOverrides": {},
+  "baseUrl": "",
+  "bearerOnly": false,
+  "clientAuthenticatorType": "client-secret",
+  "clientId": "hd-pacs",
+  "consentRequired": false,
+  "defaultClientScopes": [
+    "acr",
+    "basic",
+    "email",
+    "hd-api",
+    "profile",
+    "roles",
+    "web-origins"
+  ],
+  "description": "HD 產品群的權限容器。\n所有 scope（client roles）與職務（composite roles）都掛在這裡。\n各服務驗證 aud=hd-pacs。\n它不登入任何人 —— 四個 authentication flow 必須保持全部關閉。",
+  "directAccessGrantsEnabled": false,
+  "enabled": true,
+  "frontchannelLogout": true,
+  "fullScopeAllowed": true,
+  "id": "22801808-d805-4cdd-bbf2-a60d7110d1c8",
+  "implicitFlowEnabled": false,
+  "name": "HD PACS 資源伺服器",
+  "nodeReRegistrationTimeout": -1,
+  "notBefore": 0,
+  "optionalClientScopes": [
+    "address",
+    "microprofile-jwt",
+    "offline_access",
+    "organization",
+    "phone"
+  ],
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "redirectUris": [
+    "/*"
+  ],
+  "rootUrl": "",
+  "serviceAccountsEnabled": false,
+  "standardFlowEnabled": false,
+  "surrogateAuthRequired": false,
+  "webOrigins": [
+    "/*"
+  ]
+}

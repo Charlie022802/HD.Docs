@@ -100,6 +100,10 @@ HD_IDENTITY_MIRROR   hdUserUuid / username / display_name / email / enabled
                      roles[]（展開後的完整 scope 清單）/ synced_at
 ```
 
+**已落地 `.191`（2026-08-27，`db_update_v2.0.40`）。** 驗的是結構不是「表在不在」：
+10 個欄位、`SCOPES` 的索引**實際型別是 `gin`**、`USERNAME` 是 unique、`@> ARRAY['dicomweb.read']`
+查得動。程式碼那端 `ExistsAsync()` 是每次開頁面檢查，所以表建好之後不必重新部署主控台。
+
 由 `HD.Identity` 在指派權限時順手更新，另加定期全量 sync 校正。
 **它一份解掉兩個代價**：「誰有這個權限」變回一句 SQL，同時也是「Keycloak 是唯一正本、attribute 掉了
 就沒有第二份」的那份保險。
@@ -214,6 +218,20 @@ Keycloak   HD_IDENTITY_MIRROR
 Keycloak user attributes 每次登入都會被讀、可能進 token，且只能透過 Admin API 改，
 **不適合放使用者的個人偏好**（版面、快捷工具、報告範本那類）。
 那些留在各系統自己的 DB、用 `hdUserUuid` 當 key 就好。`HD_USER_CONFIG` 的內容跟著看片端重做走。
+
+### realm 設定的版控產物
+
+realm `hd` 原本**只存在那台 Keycloak 裡**——2026-08-27 是照著步驟一格一格點出來的，沒有正本。
+共用 realm 上任何人的誤觸，我們也看不出來。
+
+`docs/keycloak/export-hd-pacs.py` 把屬於我們的部分抓下來：`hd-pacs*` 三個 client、
+`hd-pacs` 的角色（**composite 展開**，因為那才是職務實際給了哪些權限）、群組、user profile 屬性。
+
+**刻意不用 Keycloak 內建的 realm 匯出**：①整份匯出會把同事的 client 一起抄進我們的 repo
+②`partial-export` 端點要 `manage-realm`，那把權限大到可以改整個 realm，service account 不該有。
+
+輸出是穩定排序的 JSON，所以**有 diff 就代表真的有人改過設定**。用法與重建順序見
+[../keycloak/README.md](../keycloak/README.md)。
 
 ### 執行順序（有硬相依）
 

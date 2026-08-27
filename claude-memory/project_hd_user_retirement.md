@@ -8,7 +8,20 @@ metadata:
   modified: 2026-08-26T17:16:56.797Z
 ---
 
-**2026-08-27 架構定案：使用者的身分與角色全交 Keycloak，HDPACS 不再存帳號、也不再存授權。**
+**2026-08-27 已上線（不只是定案）：權限正本從 `HD_USER` 移到 Keycloak，三支服務都翻了開關。**
+
+`ScopesFromToken=true` 已套用在 DicomWeb（`.199`, `1.0.0-alpha.16`）／Export（`.199`, `0.1.0-alpha.18`）／
+管理主控台（`.191`, `0.1.0-alpha.25`）。各自驗過，不是「服務起來了」：
+DicomWeb 的 `/api/v1/auth/me` 同一張 token 從 **10 個 scope 變 7 個**、Export 端點 200、
+主控台重新登入後選單少一項。**那個「10→7」的差異才是證據。**
+
+職務：`pacs-admin`（7 個 scope，**刻意不含 `admin.licenses`**）、`license-issuer`（只有 `admin.licenses`，
+因為簽發會動私鑰）。職務可疊加。
+
+**`HD_USER.ROLES` 現在對那三支服務完全沒有作用**，只剩 hd-web-server 會讀 ——
+所以主控台 `/users` 那頁「這是目前實際生效的授權來源」的說明**已經過時了，下次動要改掉**。
+
+**架構定案：使用者的身分與角色全交 Keycloak，HDPACS 不再存帳號、也不再存授權。**
 `HD_USER` / `HD_USER_CONFIG` / `HD_ROLE` / `HD_GROUP` / 整個 `report` schema 退場。
 本地只留一張**唯讀投影表** `HD_IDENTITY_MIRROR`，供查詢與備份，**絕不參與授權判斷**。
 正本在 `docs/systems/identity.md`「2026-08-27 定案」與 backlog 的 REQ-024。
@@ -51,6 +64,27 @@ hd-web-server 淘汰／報告換全新系統／看片端重做／`MAP_JOB.HD_USE
 - **`HD_ACTIVE_USERS` 是 debug 殘留**（使用者確認），不是分岔項：只在若瑟正式機、不在更新鏈、
   **整個 codebase 零引用**。跟 [[project-db-chain-drift]] 那六個不同 —— 那六個至少還有程式在用。
 
+**實際佈署時撞到的坑（全都是「回 2xx 成功但結果是錯的」）：**
+
+- **OIDC 授權碼流程不能用 `FromPrincipal`** —— `OnTokenValidated` 的 `Principal` 來自 **ID token**，
+  而 `resource_access` 只在 **access token**（Keycloak 預設 `Add to ID token=Off`）。
+  用錯＝所有人零權限。主控台用 `FromAccessToken`；DicomWeb／Export 走 JwtBearer 維持 `FromPrincipal`。
+  **不選「改 Keycloak 讓 ID token 帶 roles」，因為 `roles` 是共用的 default client scope，會影響同事的 client。**
+- **Admin API 沒有 client 檢視權限時回 200 + 空陣列**，跟「client 不存在」長得一模一樣 ——
+  人會跑去 Keycloak 確認「明明有啊」。少的是 `view-clients`／`manage-clients`（群組則是 `query-groups`）。
+- **改了 service account 的角色要重啟服務**：token 快取約 15 分，而權限不足回的是 200 不是 401，
+  所以 401 重試那條路不會觸發、快取不會自動作廢。
+- **`PUT /users/{id}` 是整份取代不是部分更新**（realm 啟用 User Profile 之後）。只送 `attributes`
+  會把姓名 Email 清空、回 204 無警告。已改成先讀回整份再送（`PatchUserAsync`）。
+  **當天就這樣吃掉過同事一位使用者的 Email。**
+- **`KeycloakUser` 上的計算屬性會被序列化出去** → Keycloak 拒絕未知欄位 → 所有寫入 400。
+
+**翻開關前的盤點做法**：查 `HD_USER` 現況 —— **只有「現在真的有權限」的人會受影響**。
+`.191` 當時 12 筆，其中 8 筆是舊系統的服務帳號（`HD-*`／`IDC-web-broker`／`hdservice`／`hduser`），
+**它們在 Keycloak 裡不存在、拿不到 token**，走 hd-web-server 帳密登入，所以零影響 ——
+這 8 個也正好是「hd-web-server 淘汰」實際要面對的清單。
+
 相關：[[project-jit-provisioning]]（「建 HD_USER」整段作廢，401 症狀從根消失）、
 [[project-auth-keycloak-plan]]、[[project-hd-web-server]]（凍結 → 淘汰）、[[project-db-chain-drift]]、
-[[project-multi-site-host]]（`site_scope_for_user` 要改吃參數）。
+[[project-multi-site-host]]（`site_scope_for_user` 要改吃參數）、
+[[reference-keycloak-realm-hd]]、[[feedback-deploy-not-commit]]。

@@ -59,5 +59,7 @@
 - [UPS-RS](project_ups_rs.md) — DICOMweb 工作清單放 HD.Pacs.DicomWeb、獨立 UPS_WORKITEM 表(public)、目標同一份worklist但橋接HDM延後;phase1(建/搜/取/改狀態+txn鎖/改屬性/取消)已建置未部署;DB migration 004 使用者自跑
 - [i18n 規劃](project_i18n_plan.md) — 多語系已定案(resx+IStringLocalizer,日誌不翻,正本 docs/i18n-plan.md);新 UI 一律 localizer
 - [多院區主機](project_multi_site_host.md) — **階段一完成並套用 .191(v2.0.31,2026-08-18)**:SITE 表+RC_STUDY.SITE_CODE+四個 INSERT 點蓋章;停用院區拒收、SITE 只停用不刪除、出口過濾以「SITE 表有沒有資料」當總開關 — **不是「動物醫院總主機」,是多院區承載(2026-08-18 更正)**;SITE_CODE 蓋章+出口過濾;病歷號作用域靠 SITE.PATIENT_ID_SHARED 設定(預設 false=嚴格隔離);設計完備待開工
-- [HD_USER 退場](project_hd_user_retirement.md) — **2026-08-27 定案**:Keycloak 當唯一正本(人**+角色**),HD_USER/HD_USER_CONFIG/HD_ROLE/HD_GROUP/report schema 全退場,本地只留**唯讀投影表**(絕不參與授權判斷);前提是**四件事拍板才把 12 條 FK 清空**;scope=client role、HD_ROLE=composite role;**一定用 client roles 不用 realm roles**;我同一天改過兩次結論、第二次才對
+- [HD_USER 退場](project_hd_user_retirement.md) — **2026-08-27 已上線**:三支服務都翻了 ScopesFromToken,權限正本從 HD_USER 移到 Keycloak(DicomWeb alpha.16/Export alpha.18/主控台 alpha.25);證據是同一張 token 的 scope **10→7**;職務 pacs-admin + license-issuer;**HD_USER.ROLES 對那三支已無作用**、只剩 hd-web-server 讀 → /users 頁的說明過時了;五個「回 2xx 但結果錯」的坑都記在裡面
 - [JIT 佈建](project_jit_provisioning.md) — 使用者佈建改走 JIT(Keycloak 認得但無 HD_USER 就地建零角色);起因=同事訂閱制前端先上線、原雙寫契約沒發生;開關預設 false 且**必走環境變數**;三個坑=GROUP_REF 不能 MIN fallback(會丟進 admin)/ID 沒唯一約束要 advisory lock/不要寫沒人讀的欄位
+- [Keycloak realm hd](reference_keycloak_realm_hd.md) — **realm 與同事的訂閱平台共用**;hd-console/hd-meet/hd-platform-backend/hd-viewer **是他的、不要碰**;我們的 client 一律 **hd-pacs 開頭**(提議 hd-console 時撞名過);群組 hyperdigital = 我們的人
+- [commit≠佈署](feedback_deploy_not_commit.md) — 一天犯三次:設定寫對、服務 active、/health 200,但那版沒有讀它的程式碼且**毫無抱怨**;順序必須「先裝版本→確認版本→再改設定」;另:測試替身太寬鬆會讓對方的契約錯誤隱形(400 未知欄位測不到、不分頁害測試卡死)

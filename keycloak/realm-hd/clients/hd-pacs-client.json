@@ -1,0 +1,68 @@
+{
+  "access": {
+    "configure": true,
+    "manage": true,
+    "view": true
+  },
+  "adminUrl": "",
+  "alwaysDisplayInConsole": false,
+  "attributes": {
+    "backchannel.logout.revoke.offline.tokens": "false",
+    "backchannel.logout.session.required": "true",
+    "client.secret.creation.time": "1785998115",
+    "display.on.consent.screen": "false",
+    "frontchannel.logout.session.required": "true",
+    "oauth2.device.authorization.grant.enabled": "false",
+    "oidc.ciba.grant.enabled": "false",
+    "post.logout.redirect.uris": "+",
+    "realm_client": "false"
+  },
+  "authenticationFlowBindingOverrides": {},
+  "baseUrl": "",
+  "bearerOnly": false,
+  "clientAuthenticatorType": "client-secret",
+  "clientId": "hd-pacs-client",
+  "consentRequired": false,
+  "defaultClientScopes": [
+    "acr",
+    "basic",
+    "email",
+    "hd-api",
+    "profile",
+    "roles",
+    "web-origins"
+  ],
+  "description": "登入與測試用 client（public，開啟 direct access grants）。\n供 password grant 取 token 與 Evaluate 驗證使用。\n管理主控台目前也用這支做 OIDC 導頁登入（將來會拆到 hd-pacs-console）。\nFull scope allowed 必須保持開啟，否則 hd-pacs 的 client roles 不會進 token\n—— 症狀是所有人零權限，而且從這頁的設定完全看不出跟權限有關。",
+  "directAccessGrantsEnabled": true,
+  "enabled": true,
+  "frontchannelLogout": true,
+  "fullScopeAllowed": true,
+  "id": "079d0b68-1918-4264-8cbf-afe11d2a5f62",
+  "implicitFlowEnabled": false,
+  "name": " HD 登入 client（測試／主控台共用）",
+  "nodeReRegistrationTimeout": -1,
+  "notBefore": 0,
+  "optionalClientScopes": [
+    "address",
+    "microprofile-jwt",
+    "offline_access",
+    "organization",
+    "phone"
+  ],
+  "protocol": "openid-connect",
+  "publicClient": true,
+  "redirectUris": [
+    "http://192.168.68.191:5200/*",
+    "http://192.168.68.199:5080/*",
+    "http://localhost:*",
+    "https://192.168.68.199/*",
+    "https://hddicomweb/*"
+  ],
+  "rootUrl": "",
+  "serviceAccountsEnabled": false,
+  "standardFlowEnabled": true,
+  "surrogateAuthRequired": false,
+  "webOrigins": [
+    ""
+  ]
+}

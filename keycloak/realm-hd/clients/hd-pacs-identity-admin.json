@@ -1,0 +1,64 @@
+{
+  "access": {
+    "configure": true,
+    "manage": true,
+    "view": true
+  },
+  "adminUrl": "",
+  "alwaysDisplayInConsole": false,
+  "attributes": {
+    "backchannel.logout.revoke.offline.tokens": "false",
+    "backchannel.logout.session.required": "true",
+    "client.secret.creation.time": "1787834926",
+    "display.on.consent.screen": "false",
+    "frontchannel.logout.session.required": "true",
+    "oauth2.device.authorization.grant.enabled": "false",
+    "oidc.ciba.grant.enabled": "false",
+    "realm_client": "false"
+  },
+  "authenticationFlowBindingOverrides": {},
+  "baseUrl": "",
+  "bearerOnly": false,
+  "clientAuthenticatorType": "client-secret",
+  "clientId": "hd-pacs-identity-admin",
+  "consentRequired": false,
+  "defaultClientScopes": [
+    "acr",
+    "basic",
+    "email",
+    "hd-api",
+    "profile",
+    "roles",
+    "service_account",
+    "web-origins"
+  ],
+  "description": "管理主控台呼叫 Keycloak Admin API 用的 service account。\n權限見 Service accounts roles 分頁（realm-management）。\nsecret 由各站台自行保管在主控台的環境變數檔，不進版控。\n輪替 secret 後若沒同步更新主控台設定，使用者管理頁會整頁停用。",
+  "directAccessGrantsEnabled": false,
+  "enabled": true,
+  "frontchannelLogout": true,
+  "fullScopeAllowed": true,
+  "id": "454f555a-739b-4d9e-8df7-e339c224c5c6",
+  "implicitFlowEnabled": false,
+  "name": "HD 身分管理服務",
+  "nodeReRegistrationTimeout": -1,
+  "notBefore": 0,
+  "optionalClientScopes": [
+    "address",
+    "microprofile-jwt",
+    "offline_access",
+    "organization",
+    "phone"
+  ],
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "redirectUris": [
+    "/*"
+  ],
+  "rootUrl": "",
+  "serviceAccountsEnabled": true,
+  "standardFlowEnabled": false,
+  "surrogateAuthRequired": false,
+  "webOrigins": [
+    "/*"
+  ]
+}

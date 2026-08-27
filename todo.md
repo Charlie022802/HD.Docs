@@ -181,6 +181,14 @@
   `OTHERS.keycloakSub` **等於 token 的 `sub`（`c23d9283-…`）** —— 那個 UUID 我們沒有別的管道拿得到，
   能對上才證明存的是真身分。還原用單一交易（先刪 JIT 列再改回名字，因為 `ID` 沒有唯一約束，
   順序反了會短暫出現兩列同 ID 而查詢是 `LIMIT 1`），原列 UUID `2836b334-…` 全程未被刪。
+- [x] **`HD_IDENTITY_MIRROR` 落地 `.191`（2026-08-27，`db_update_v2.0.40`）**：表本來只寫了腳本沒套，
+  等於投影表那段程式碼是「寫了但沒交付」。套完驗過的是**結構不是存在**：10 欄、`SCOPES` 的索引
+  實際型別是 `gin`（不是被建成 btree）、`USERNAME` unique、`@> ARRAY[...]` 查詢可執行。
+  `.191` 上跑的 `alpha.25` 已含讀這張表的程式碼（`ExistsAsync()` 每次開頁面檢查），不必重新部署。
+- [x] **realm 設定變成版控產物（2026-08-27）**：[keycloak/](keycloak/) —— 整個 realm 原本只存在
+  那台 Keycloak 裡，共用 realm 上任何人的誤觸我們都看不出來。腳本只抓 `hd-pacs*` 三個 client、
+  `hd-pacs` 的角色（composite 展開）、群組、user profile；**不碰同事的 client**，也不含 secret。
+  輸出穩定排序，所以有 diff 就代表真的有人改了設定。
 - [ ] **權益等級仍未解**：JIT 讓人進得來，但權限要人工指派。方向＝訂閱方案對應 Keycloak group、
   我方做 group → `HD_ROLE` 映射（`groups` claim 已經在 token 裡）。**待與同事確認對照表。**
 - [ ] **AdminConsole 使用者管理頁**：JIT 佈建出來的人要有地方指派角色。順帶補掉
@@ -189,6 +197,10 @@
 - [x] **groups claim（2026-08-09，同事需求）**：Keycloak `hd-api` scope 加 Group Membership mapper（claim=groups、Full path Off、access+ID token）→ 掛 `hd-api` 的 client 全部帶 groups；DicomWeb `/api/v1/auth/me` 回傳 groups（`782ed6f`，部署 .199 驗證：`["hyperdigital"]`）。提醒：groups 僅供顯示/分流，**授權仍查 DB**；若要群組→權限映射另議。
 
 ## HD 後端管理主控台（HD.AdminConsole）— 集中管理平面
+- [x] **`/users` 標成「舊」（2026-08-27，`0.1.0-alpha.26`）**：三支服務都改讀 token 之後，
+  `HD_USER.ROLES` 只剩 hd-web-server 會讀，但那頁與側欄註解還寫著「目前實際生效的授權來源」。
+  改成頁面上一條明說「這一頁已經不是權限的正本了」並連到 `/identity`，側欄加「舊」徽章。
+  **還不能整頁移除**：看片端的帳密登入仍走 hd-web-server。等它淘汰再拿掉。
 - [x] **系統資訊視窗（2026-08-26/27）**：右上角 info，三組（程式／執行時期／連線）。
   排障第一句話——現場截這張圖就知道版本／環境／連到哪個 DB／SSO 指哪。**DICOMweb Manager 同步加上**
   （`1.0.0-alpha.12`），那邊多「啟用模組」與「JIT 佈建」兩項：前者因為同一份程式碼會以不同模組

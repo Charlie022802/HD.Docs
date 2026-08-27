@@ -149,7 +149,7 @@
 - **與既有決策的關係**：[media-export-redesign](media-export-redesign.md) 第 7 節記的「archive 流程淘汰」，範圍**只是「新的 export／打包流程裡不放 archive」** —— 那個用途不納入新的 `PACKAGE_JOB` 設計、不遷移，`archiveItems`（打包前先從 nearline 撈回檔案）也一併退場。**它跟 archive 功能本身無關，更不是在講 HD-Archive。** 兩件事各自獨立，不要當成因果。
 
 ### REQ-024　身分與角色全交 Keycloak：`HD_USER` 退場
-- **狀態**：架構定案（2026-08-27），待實作。**正本 [systems/identity.md](systems/identity.md)「2026-08-27 定案」**
+- **狀態**：進行。**第 1～5 步已完成並上線（2026-08-27）**，卡在第 6 步「看片端切 Keycloak」——那要先有院內自建 Keycloak。**正本 [systems/identity.md](systems/identity.md)「2026-08-27 定案」**
 - **系統**：HDPACS DB、HD.Shared.Auth、AdminConsole、DicomWeb、Export、看片端、（新）報告系統
 - **決策**：使用者的**身分與角色全部交 Keycloak**，HDPACS 不再存帳號、**也不再存授權**。`HD_USER`／`HD_USER_CONFIG`／`HD_ROLE`／`HD_GROUP`／整個 `report` schema 退場。本地只留一張**唯讀投影表** `HD_IDENTITY_MIRROR`，供查詢與備份，**絕不參與授權判斷**。
 - **成立的四個前提（都已拍板）**：hd-web-server 淘汰（`HD_USER.PASSWORD` 最後的消費者）／報告換全新系統（`report` schema 淘汰）／看片端重做／`MAP_JOB.HD_USER_UUID` 判定不重要。這四件事清掉指向 `HD_USER` 的**全部 12 條 FK**。**少一件就破功。**
@@ -162,10 +162,13 @@
 - **`HD.Identity`**：介面背後要是一支服務，**不要直接在 Blazor 頁面打 Admin API**。它是唯一碰 Keycloak Admin API 的地方（composite 展開、命名規則、`hdUserUuid` 生成都在這），之後各系統接它而不是各自接。**四個已知坑**：Admin base 不是 Authority 接路徑（要拆 host+realm 重組）／`PUT /users/{id}` 的 attributes 是**整個覆寫不是 merge**（先 GET 再合併）／`enabled=false` 不撤已發出的 token／service account 自己也是一個 user 要過濾。
 - **執行順序（有硬相依）**：
   1. `v2.0.39` 的 `ENABLE`／`EXPIRE_DATE` 標記作廢（已佈 `.191`，腳本不動、只加追記）**（已完成）**
-  2. ~~`HD.Identity` 骨架 + `KeycloakAdminClient`~~ **已完成（2026-08-27，未 commit）**：
+  2. ~~`HD.Identity` 骨架 + `KeycloakAdminClient`~~ **已完成並對真實 Keycloak 實測（2026-08-27）**：
      `HD.Shared/src/HD.Shared.Identity`（相依方向 Identity→Auth，用專案相依擋住「投影表不參與授權」）、
      `db_update_v2.0.40.sql` 建 `HD_IDENTITY_MIRROR`、主控台 `/identity` 新頁（與 `/users` 並存）、
      40 條測試且逐條做過突變驗證。**尚未對真實 Keycloak 實測**（缺 secret）。
+     `HD_IDENTITY_MIRROR` 已套 `.191`，投影同步實測：5 人、composite 真的被展開
+     （`hdserver` 只掛 `pacs-admin` 卻拿到 7 個 scope 且**不含 `admin.licenses`**），
+     `hdUserUuid` 補配 3 筆、第二次同步回報 0 筆且 UUID 一字未改（＝寫回 Keycloak 真的成功）。
      未做：職務角色建立 UI、`siteCode` 編輯 UI（服務層都已具備，只差介面）。
   3. 向同事要那三件事
   4. `ScopeCatalog` → Keycloak client roles 同步；`HD_ROLE` 轉 composite roles
@@ -174,6 +177,10 @@
      下游 policy 零改動；開關 `Keycloak:ScopesFromToken`（預設 false）＋ `RoleClientId`，三支服務都接好。
      只認 client roles、不認 realm roles；這條路徑沒有本地停用旗標（交給 Keycloak）。
      **翻開關前必須先把 ScopeCatalog 同步到 Keycloak 並指派角色**，否則所有人零權限。
+  5.5 **realm 設定變成版控產物**（`docs/keycloak/`）**已完成（2026-08-27）** ——
+     realm 原本只存在那台 Keycloak 裡，共用 realm 上的誤觸看不出來。
+     **待補**：匯出目前借用 `hd-pacs-identity-admin`，那是能 `manage-users`／`manage-clients` 的帳號，
+     而匯出只需要讀。應另開一個唯讀 client（`view-realm`／`view-clients`／`query-groups`）。
   6. **看片端改接 Keycloak 登入 —— 整條路的瓶頸**（現在唯一的路是 hd-web-server 帳密）
   7. hd-web-server 淘汰
   8. 報告新系統上線 + 舊報告匯出成不可變快照
