@@ -408,9 +408,126 @@ pacs-admin （composite）
 
 ## Viewer 切 Keycloak（2026-08-17 決策：雙軌，提前實作、不替換）
 
-> **2026-08-27 已推翻「不替換」。** hd-web-server 確定淘汰，而它是看片端帳密登入的唯一路徑，
-> 所以看片端的 Keycloak 登入從「並存」變成**取代**（見上節執行順序第 5 步，那是整條路的瓶頸）。
+> **2026-08-27 兩次修訂，最後結論是「雙軌」重新成立。**
+> 當天稍早推翻過「不替換」（理由：hd-web-server 淘汰後沒有第二軌可留，所以 Keycloak 登入必須是取代，
+> 而取代要等院內自建 Keycloak）。同日使用者決定 **hd-web-server 先不淘汰、等所有功能都沒問題再說**——
+> 第二軌就還在，**看片端的 Keycloak 登入因此不必等院內 Keycloak，用公開的 `sso.hdtech.tw` 就能實作並驗證**。
 > 本節其餘內容（封閉網路根因、OIDC 九坑）仍然有效。
+
+### 2026-08-27 決策：目標是「我方程式與 `HD_USER` 脫鉤」，不是「`HD_USER` 退場」
+
+使用者當天重新界定了範圍：`HD_USER` 這張表**留在資料庫裡**、12 條 FK 不動、`MAP_JOB.HD_USER_UUID` 不動；
+報告新系統是同事的事；hd-web-server 先放著、等所有功能都沒問題再淘汰。
+**要的只是「我自己的程式不要再跟它有關聯」。**
+
+盤點我方四個 repo 的 29 個 `HD_USER` 命中，**真的碰那張表的只有三支**（其餘是 `HD_USER_AUDIT_LOG`
+這張**不同的表**、`HD_USER_UUID` 這個欄位名、註解與 EF migration）：
+
+| 檔案 | 狀態 |
+|---|---|
+| `HD.Shared.Auth/HdUserRepository.cs` | **死碼**。三支服務在 `ScopesFromToken=true` 之下 token 一到就 return，走不到 |
+| `HD.AdminConsole/Services/UserAdminService.cs` | `/users` 那頁，刻意留著管 hd-web-server |
+| `HD.DicomImageViewer.Server/Services/UserService.cs` | **唯一還活著的**：`POST /api/v2.0/user/login` 拿帳密查 `HD_USER` |
+
+**所以「脫鉤」剩下的工作就是看片端登入這一條。**
+
+### 看片端的 `access` 是什麼（2026-08-27 對 `.148` 正式機實地盤點）
+
+`viewer_station.get_access_definition(userId, section)` ＝ 把使用者每個角色的
+`HD_ROLE.ACCESS -> section` **遞迴合併**。回傳是一棵白名單樹，葉節點是空物件——**鍵存在＝有權限**。
+
+**現在已經有兩道正交的閘，不要混為一談：**
+
+| 閘 | 存在哪 | 回答什麼 |
+|---|---|---|
+| `Mode` | **本機** `localconfig.json`（裝機時設定） | **這台機器**是一般站／乳房攝影站／QC 站 → 決定去取哪個 section |
+| access 樹 | DB `HD_ROLE.ACCESS -> section` | **這個人**在那個 section 裡能做什麼 |
+
+`Mode` 是**機器屬性不是人的屬性**，所以**不要把 mode 帶進 Keycloak scope**——
+放進去就變成「這個人只能在乳房攝影站登入」，語意錯了，而且醫師在不同站之間走動就會壞掉。
+
+**客戶端實際會分岔的鍵，掃過整個 `HD.DicomImageViewer.Core` 共 23 個**（`.148` 的 DB 出現過 24 個，
+多的那個是 `setting.screen`——**客戶端從不讀，是死鍵**，`.191` 與 `.148` 都有）：
+
+- 頂層 4：`setting`、`qualityControl`、`import`、`queryRetrieve`
+- `setting.*` 14：save / system / toolbar / hotKey / dicomTag / titleList / layoutList /
+  `annotatioin`（**原始拼字如此，見下**）/ defaultLayout / contextToolMenu / hangingProtocol /
+  dicomCommunication / mammoTool / qualityControl
+- `qualityControl.*` 5：study / series / object / transmit / saveWindowLevel
+
+拿不到 section（`null`）時，客戶端的行為是**跳「使用者權限不足，請先申請！」然後不開 Viewer**
+（`LoginForm.cs:262`）。
+
+### 六個 scope（粒度取自客戶端的 if，不是取自任何一個站台的角色表）
+
+```
+viewer.use              總開關（沒有它＝現在的 null）
+viewer.query            queryRetrieve  -> 「查詢／取回」分頁（MainForm.cs:173）；對外發 C-FIND/C-MOVE
+viewer.import           import         -> 查詢畫面的匯入按鈕（MainForm.cs:134）；會寫入影像
+viewer.qc               qualityControl 整棵（QCForm.cs 17 處）；會改動既有檢查的歸屬
+viewer.settings         setting 整棵（含 mammoTool，不含 dicomCommunication）
+viewer.settings.dicom   setting.dicomCommunication
+```
+
+ViewerWebApi 拿 token 的 scope，在自己這邊展開成**三個 section 的完整結構**，
+形狀與現行回傳一模一樣——**客戶端 `GetSectionByMode` 零改動**。
+
+**為什麼是這個粒度：**
+
+- **`viewer.settings.dicom` 必須獨立，而且預設不給**：`.148` 的 `remoteAEList` 有 **60 個遠端 AE**，
+  改壞會讓整台機器送不出片。這個理由跟角色表怎麼設無關。
+
+  **它的性質是「部署限制的備案」，不是一種職務權限**（2026-08-27 使用者說明）：
+  大醫院基本上不開放，唯一會開的情況是**裝不了 Web 版核心控制介面**的站台——那時 AE 設定
+  沒有別的地方可以改，只能退回從 Viewer 改。使用率極低。
+
+  所以：①**任何標準職務都不含它**，要開是逐站台的例外 ②**它是永久的不是過渡的**
+  （只要還有裝不了主控台的站台就會需要）③長期形狀是「AE 設定住在管理主控台，
+  Viewer 那顆按鈕只在沒有主控台的站台亮」。
+
+  > 順帶一提，當年 Viewer 之所以要自己能改 AE，是因為單機裝機時沒有獨立 Linux 主機、
+  > 就沒有 hd-web-server 也沒有 AdminTool。但**設定一直都存在 DB**
+  > （`viewer_station.get_common_config`，不是本機檔案），當年缺的是**編輯介面不是儲存**。
+  > 管理主控台是 self-contained 的 .NET，可以裝在同一台 Windows 上——這是備案能收斂的原因。
+- **`qualityControl` 不再細分**：五個子鍵在 `.148` 三個角色全給、零分級，
+  拆成五個 scope 是拿真實成本買一個從未使用的能力。
+- **`mammoTool` 不獨立成 scope**：`.148` 三個角色都只在 `mammoViewer` 底下有它（三個 section
+  逐一驗過），結構是乾淨的——**mode 已經擋住了，再加 scope 是重複同一道閘**。
+  殘留行為：沒有乳房攝影判讀資格的人坐到乳房攝影站仍拿得到 mammoTool（擋的是機器不是人）。
+  哪天真要用資格區分再加 scope。
+
+### 不要拿若瑟的角色表當設計依據
+
+`.148` 有 5 個角色，`stationViewer` 的組合三種都不同（`server`=queryRetrieve+setting、
+`user`=import+queryRetrieve+setting、`useradmin`=import+setting）。**但使用者明確說那邊不標準**，
+`import`／`queryRetrieve` 是漏掉沒清的——所以「role 4 沒有 queryRetrieve」很可能不是刻意分級，
+只是沒人發現（功能沒人用，少了也不會有人抱怨）。
+
+**遷移的做法因此是「先定義標準職務，再把若瑟的人對進去」**，他們多出來或漏掉的部分是要跟現場確認的
+個案，不該變成我們的標準。
+
+`.148` 唯一真正在用的子鍵分級是 `setting.dicomCommunication`：33 位真人（role 2 `user`）拿不到，
+只有 4 位 `useradmin` 和 2 個服務帳號有。
+
+> **`.191` 會誤導。** 那台只有 role 1 定義了 viewer section，其他角色三個 section 全空，
+> 看起來像「權限是二元的」。**我當天就是這樣推論然後錯了**——現場有真實分級。
+> 跟更新鏈分岔是同一種形狀的坑：**只在測試床上驗，永遠驗不出來。**
+
+### `annotatioin` 拼字修正
+
+`annotatioin` 是既有的拼字錯誤，後續版本要改成 `annotation`。做法：
+
+- **Keycloak 軌**：ViewerWebApi 是從 scope 展開那棵樹的，**鍵的拼字由我們決定**，直接寫 `annotation`。
+- **帳密軌（讀 DB 的舊路）**：客戶端要**兩個鍵都認**（`annotation ?? annotatioin`）。
+  否則舊 DB 的權限會靜默消失——那種「鍵不存在＝沒權限」的錯，畫面上只會看到按鈕不見了，
+  沒有任何錯誤訊息。
+- **`Database/` 底下 20 幾個歷史 SQL 檔的錯字不要動**（改了會破壞既有站台重跑更新鏈），只在新腳本處理。
+
+### 撿到的既有問題
+
+- `setting.screen`：DB 三個角色都有，**客戶端從頭到尾沒讀過**。死鍵。
+- `hangingProtocol`：`.148` 的 role 1 在 `mammoViewer` 底下沒有它，但 `stationViewer` 有，
+  role 2／4 兩邊都有。看起來是手改 JSON 漏掉的，不是設計。影響僅限服務帳號。
 
 **背景**：醫院多為封閉網路，連不到外部的 `sso.hdtech.tw` —— 看片端跑在醫師個人電腦、連的是醫院內部主機，
 登入若要繞出去打 Keycloak，封閉網路的醫院會直接登不進去看片。
