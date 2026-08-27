@@ -128,7 +128,7 @@ HD_IDENTITY_MIRROR   hdUserUuid / username / display_name / email / enabled
 
 | 要的東西 | 為什麼他沒理由拒絕 |
 |---|---|
-| `hd-admin-console` **confidential client + service account roles** | 開個 client 給權限，不動他任何流程 |
+| `hd-identity-admin` **confidential client + service account roles** | 開個 client 給權限，不動他任何流程 |
 | `hdUserUuid` 設成 **admin-only** attribute | 這是安全性修補（使用者能自改＝能冒充別人的歷史紀錄） |
 | client `hd-pacs` 底下的 roles 命名空間**歸我們管** | 我們自己的 client，跟他的訂閱 roles 不衝突 |
 
@@ -200,7 +200,7 @@ Keycloak   HD_IDENTITY_MIRROR
    全清掉——必須先 `GET` 再合併。（跟 `OTHERS` jsonb 那個教訓一模一樣。）
 3. **`enabled=false` 不會撤銷已發出的 token**（見上方「撤權有延遲」）。
    要撤 session 得另打 `POST /users/{id}/logout`，但已發出的 access token 仍有效到過期。
-4. **service account 自己也是一個 user**（`service-account-hd-admin-console`），會混在清單裡，要過濾。
+4. **service account 自己也是一個 user**（`service-account-hd-identity-admin`），會混在清單裡，要過濾。
 
 另：`search=` 是模糊比對 username／姓／名／email，要精確找帳號得用 `username=xxx&exact=true`。
 
