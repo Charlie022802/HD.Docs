@@ -128,12 +128,13 @@ HD_IDENTITY_MIRROR   hdUserUuid / username / display_name / email / enabled
 
 | 要的東西 | 為什麼他沒理由拒絕 |
 |---|---|
-| `hd-identity-admin` **confidential client + service account roles** | 開個 client 給權限，不動他任何流程 |
+| `hd-pacs-identity-admin` **confidential client + service account roles** | 開個 client 給權限，不動他任何流程 |
 | `hdUserUuid` 設成 **admin-only** attribute | 這是安全性修補（使用者能自改＝能冒充別人的歷史紀錄） |
 | client `hd-pacs` 底下的 roles 命名空間**歸我們管** | 我們自己的 client，跟他的訂閱 roles 不衝突 |
 
 service account 要掛的 `realm-management` 角色：`view-users`／`query-users`（列出搜尋）、
-`manage-users`（建立／修改／停用）、`view-realm`（讀 roles）、`view-events`（之後稽核頁拉登入事件）。
+`manage-users`（建立／修改／停用）、`view-realm`、
+**`view-clients`（找得到 client）、`manage-clients`（建立 client roles）**、`view-events`（之後稽核頁拉登入事件）。
 secret 放 `/etc/hd-admin-console/keycloak.env`，**不要放 appsettings**——preserve 會擋住。
 
 ### `HD.Identity`：唯一碰 Admin API 的地方
@@ -192,7 +193,7 @@ Keycloak   HD_IDENTITY_MIRROR
 - 之後：DicomWeb／Export／報告系統要管使用者時接它，**不各自接 Admin API**
 - 哪天同事願意接：開成 API 即可，**不用重寫**
 
-**四個已知要繞開的坑**（寫 `KeycloakAdminClient` 時）：
+**五個已知要繞開的坑**（寫 `KeycloakAdminClient` 時）：
 
 1. **Admin base 不是 Authority 接路徑。** `https://sso.hdtech.tw/realms/hd` →
    Admin 是 `https://sso.hdtech.tw/admin/realms/hd/…`，要把 host 與 realm 拆出來重組。直接接會 404。
@@ -200,7 +201,11 @@ Keycloak   HD_IDENTITY_MIRROR
    全清掉——必須先 `GET` 再合併。（跟 `OTHERS` jsonb 那個教訓一模一樣。）
 3. **`enabled=false` 不會撤銷已發出的 token**（見上方「撤權有延遲」）。
    要撤 session 得另打 `POST /users/{id}/logout`，但已發出的 access token 仍有效到過期。
-4. **service account 自己也是一個 user**（`service-account-hd-identity-admin`），會混在清單裡，要過濾。
+4. **service account 自己也是一個 user**（`service-account-hd-pacs-identity-admin`），會混在清單裡，要過濾。
+5. **改了 service account 的角色之後，要重啟服務才會生效。** token 是快取的（約 15 分鐘），
+   而 Admin API 是看 token 裡的角色。更麻煩的是**權限不足回的是 200 加空陣列不是 401**，
+   所以 401 重試那條路不會觸發、快取不會自動作廢 —— 症狀變成「權限明明給了卻還是說找不到 client」。
+   2026-08-27 實際踩到。
 
 另：`search=` 是模糊比對 username／姓／名／email，要精確找帳號得用 `username=xxx&exact=true`。
 
@@ -223,6 +228,91 @@ Keycloak user attributes 每次登入都會被讀、可能進 token，且只能�
 7. 報告新系統上線 + 舊報告匯出成不可變快照
 8. HD_USER / HD_USER_CONFIG / HD_ROLE / HD_GROUP / report schema 收掉
 ```
+
+### 2026-08-27 已上線：三支服務都改用 Keycloak 的角色
+
+`ScopesFromToken=true` 已套用在 **DicomWeb（.199）／Export（.199）／管理主控台（.191）**，
+各自用不同方式驗過（不是「服務起來了」）：
+
+| 服務 | 版本 | 驗證方式 |
+|---|---|---|
+| DicomWeb | `1.0.0-alpha.16` | 同一張 token 打 `/api/v1/auth/me`，scope 從 **10 → 7** |
+| Export | `0.1.0-alpha.18` | `GET /export/packages` 回 **200** |
+| 管理主控台 | `0.1.0-alpha.23` | 重新登入後首頁 7 個權限、「裝置授權」如預期消失 |
+
+「10 → 7」那個差異才是證據：DB 路徑給 10、token 路徑給 7。
+`unit active` 與 `/health 200` 對這件事一個字都沒說。
+
+#### realm `hd` 的實際佈局
+
+**realm 是與同事的訂閱平台共用的**，client id 是同一個扁平命名空間。
+
+| Client | 誰的 | 用途 |
+|---|---|---|
+| `hd-pacs` | 我們 | **角色容器**：15 個 scope + 職務 composite。四個 flow 全關（bearer-only） |
+| `hd-pacs-identity-admin` | 我們 | Admin API 的 service account（confidential + service account） |
+| `hd-pacs-client` | 我們 | 登入與測試（public + direct grants）。主控台目前也用它做 OIDC 登入 |
+| `hd-console`／`hd-meet`／`hd-platform-backend`／`hd-viewer` | **同事** | 不要碰，連 Description 都不要補 |
+
+**我們的 client 一律 `hd-pacs` 開頭。** 2026-08-27 提議 `hd-console` 時撞到他既有的 client，
+差一點動到別人的東西——這個前綴就是那次的產物。
+將來的看片端登入 client 要叫 `hd-pacs-viewer`，**不能叫 `hd-viewer`**。
+
+service account 掛的 `realm-management` 角色（七個）：
+`view-users`／`query-users`／`manage-users`／`view-realm`／**`view-clients`**／**`manage-clients`**／`view-events`。
+
+user profile 屬性：`hdUserUuid`（HD 識別碼）、`siteCode`（院區代碼），
+兩個都是 **Who can edit / view 只勾 Admin**。
+
+#### 職務角色
+
+```
+pacs-admin （composite）
+  admin.users  admin.audit  admin.settings  admin.api_keys
+  dicomweb.read  export.read  export.write
+```
+
+**刻意不含 `admin.licenses`** —— 裝置授權簽發會動私鑰，要給的人另建 `license-issuer`。
+翻開關之後主控台的「裝置授權」頁會消失，那是預期行為。
+
+#### 翻開關前的盤點（做法可重用）
+
+查 `HD_USER` 現況才知道會影響誰：**「現在真的有權限」的人才會受影響**，
+在 `HD_USER` 裡零角色的人翻前翻後都一樣。
+
+`.191` 當時 12 筆，其中 **8 筆是舊系統的服務帳號**
+（`HD-offline-print`／`HD-resource-access-user`／`HD-specific-access-user`／
+`HD-study-share-user`／`HD-system`／`IDC-web-broker`／`hdservice`／`hduser`）——
+**它們在 Keycloak 裡不存在、拿不到 token**，走的是 hd-web-server 的帳密登入，
+所以完全不受影響。這 8 個也正好就是「hd-web-server 淘汰」實際要面對的清單。
+
+真正需要事先補角色的只有 `hdserver` 與 `jerry`（後者是同事的測試帳號，暫緩）。
+
+#### 實際佈署時撞到的五個坑
+
+全都是**回 2xx 成功但結果是錯的**那一類：
+
+1. **OIDC 授權碼流程不能用 `FromPrincipal`。** `OnTokenValidated` 的 `Principal` 來自 **ID token**，
+   而 `resource_access` 只在 **access token**（Keycloak 的 client roles mapper 預設
+   `Add to ID token=Off`）。用錯來源＝所有人零權限。主控台改用 `FromAccessToken`；
+   DicomWeb／Export 走 JwtBearer、principal 本來就來自 access token，維持 `FromPrincipal`。
+2. **service account 少了 `view-clients`／`manage-clients`。** 症狀是「realm 裡找不到 client `hd-pacs`」，
+   但那個 client 明明存在 —— **Admin API 在沒有檢視權限時回 200 加空陣列**，跟「不存在」無法區分。
+3. **改了 service account 的角色要重啟服務。** token 是快取的（約 15 分），而 Admin API 看的是
+   token 裡的角色；權限不足回的是 200 不是 401，所以 401 重試那條路不會觸發、快取不會作廢。
+4. **`PUT /users/{id}` 是整份取代不是部分更新**（realm 啟用 User Profile 之後）。只送 `attributes`
+   會把姓名與 Email 清空，回 204、無警告。已改成 `PatchUserAsync`（先讀回整份再送）。
+5. **`commit` 不等於佈署。** DicomWeb 與 Export 的接線早就 commit 了，版本卻沒動；
+   機器上寫了 `Keycloak__ScopesFromToken=true` 卻毫無反應，因為那版根本沒有讀它的程式碼。
+   **順序必須是「先裝版本 → 確認 `/health` 的版本 → 再翻開關」**，反過來會白跑一輪。
+
+#### 還沒做
+
+- `jerry` 的角色（同事的測試帳號，用途待確認；他在 `HD_USER` 裡是 `admin`，值得重新評估）
+- `license-issuer` 職務（要用「裝置授權」頁的人）
+- 主控台的使用者清單**預設只列 `hyperdigital` 群組**（realm 共用，現在看得到也改得動同事的客戶）
+- 拆 `hd-pacs-console` 出來當主控台的登入 client（現在借用 `hd-pacs-client`，那是 public + direct grants）
+- realm 匯出成版控產物
 
 ### 舊報告資料（唯一剩下的歷史包袱）
 
@@ -328,7 +418,11 @@ Keycloak user attributes 每次登入都會被讀、可能進 token，且只能�
 - **機器 → API Key**（`hdp_…`）：儀器／Export／程式的長期憑證，各服務算 hash 查 `HD_API_KEY`。管理面集中到 [HD 管理主控台](admin-console.md)。
 
 ## Keycloak 實測（同事已建置）
-- **token 端點**：`POST https://sso.hdtech.tw/realms/hd/protocol/openid-connect/token`（測試用 password grant：client `hd-viewer`、scope `openid`）。
+- **token 端點**：`POST https://sso.hdtech.tw/realms/hd/protocol/openid-connect/token`（測試用 password grant：client **`hd-pacs-client`**、scope `openid`）。
+  > **2026-08-27 更正**：本段原本寫 `hd-viewer`。那是 2026-08-06 早期實測時**借用**同事的 client，
+  > 不是我們的。realm `hd` 與同事的訂閱平台共用，`hd-console`／`hd-meet`／`hd-platform-backend`／
+  > `hd-viewer` 都是他的。**我們的 client 一律以 `hd-pacs` 開頭**，將來的看片端登入 client
+  > 要叫 `hd-pacs-viewer` 而不是 `hd-viewer`。
 - **issuer**：`https://sso.hdtech.tw/realms/hd`；**JWKS**：`.../protocol/openid-connect/certs`。.NET 用 `AddJwtBearer` 設 `Authority=issuer` 會自動抓 JWKS + 處理 kid 輪替，**別寫死公鑰**。
 - **✅ audience 已解決（2026-08-06）**：在 realm `hd` 建 client scope `hd-api`（Default）+ Audience mapper（Included Custom Audience=`hd-pacs`、Add to access token=On），掛到 client。access token 的 `aud` 現在帶 `hd-pacs,account`。**嚴格 aud 驗證 live 測過**：`ValidateAudience=true` + `ValidAudiences=["hd-pacs"]` → 通過。→ HD.Shared.Auth 直接用嚴格 aud，不留過渡。
   - 專用測試 client：**`hd-pacs-client`**（public、Direct access grants On）；新 client 只要掛 `hd-api` scope 就有 aud。

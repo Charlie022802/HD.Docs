@@ -158,7 +158,7 @@
 - **四個必守約束**：①**一定用 client roles 不用 realm roles**（realm 是同事在管的，這是「正本住別人家」唯一有效的隔離）②`ScopeCatalog` 留在程式碼當共同語言 —— **API Key 那條路仍是本地的**，兩個授權來源必須產出一字不差的 scope 字串 ③`hdUserUuid` 由我們的介面產生（介面是我們寫的，不需要回寫契約），**必須設 admin-only attribute**（能自改＝能冒充歷史紀錄）④**DB proc 要改**（`site_scope_for_user`、六支 `HD_ROLE_RBAC_functions` 改吃參數）—— 這是實質工作量。
 - **四個要接受的代價**：撤權延遲＝access token 存活期（15 分，**會讓驗證失去鑑別力**）／token 變大（nginx proxy buffer 502 那個坑會回來）／「誰有這個權限」不能 SQL 查／Keycloak 成單點、備份責任變重。
 - **不要再談「請同事的系統呼叫我們的 API」**：這個契約 2026-08-06 定過、從來沒發生。而且**入口本來就已經集中在 Keycloak** —— 他寫、我們也寫，寫的是同一本。
-- **該向同事要的三件事（給權限，不是改流程）**：`hd-admin-console` confidential client + service account roles（`view-users`/`query-users`/`manage-users`/`view-realm`/`view-events`）／`hdUserUuid` 設 admin-only／client `hd-pacs` 的 roles 命名空間歸我們管。secret 放 `/etc/hd-admin-console/keycloak.env`，**不要放 appsettings**（preserve 會擋）。
+- **該向同事要的三件事（給權限，不是改流程）**：`hd-admin-console` confidential client + service account roles（`view-users`/`query-users`/`manage-users`/`view-realm`/`view-clients`/`manage-clients`/`view-events`）／`hdUserUuid` 設 admin-only／client `hd-pacs` 的 roles 命名空間歸我們管。secret 放 `/etc/hd-admin-console/keycloak.env`，**不要放 appsettings**（preserve 會擋）。
 - **`HD.Identity`**：介面背後要是一支服務，**不要直接在 Blazor 頁面打 Admin API**。它是唯一碰 Keycloak Admin API 的地方（composite 展開、命名規則、`hdUserUuid` 生成都在這），之後各系統接它而不是各自接。**四個已知坑**：Admin base 不是 Authority 接路徑（要拆 host+realm 重組）／`PUT /users/{id}` 的 attributes 是**整個覆寫不是 merge**（先 GET 再合併）／`enabled=false` 不撤已發出的 token／service account 自己也是一個 user 要過濾。
 - **執行順序（有硬相依）**：
   1. `v2.0.39` 的 `ENABLE`／`EXPIRE_DATE` 標記作廢（已佈 `.191`，腳本不動、只加追記）**（已完成）**
