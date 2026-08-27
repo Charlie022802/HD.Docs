@@ -259,7 +259,7 @@ Keycloak user attributes 每次登入都會被讀、可能進 token，且只能�
 將來的看片端登入 client 要叫 `hd-pacs-viewer`，**不能叫 `hd-viewer`**。
 
 service account 掛的 `realm-management` 角色（七個）：
-`view-users`／`query-users`／`manage-users`／`view-realm`／**`view-clients`**／**`manage-clients`**／`view-events`。
+`view-users`／`query-users`／`manage-users`／`view-realm`／**`view-clients`**／**`manage-clients`**／**`query-groups`**／`view-events`。
 
 user profile 屬性：`hdUserUuid`（HD 識別碼）、`siteCode`（院區代碼），
 兩個都是 **Who can edit / view 只勾 Admin**。
@@ -305,6 +305,25 @@ pacs-admin （composite）
 5. **`commit` 不等於佈署。** DicomWeb 與 Export 的接線早就 commit 了，版本卻沒動；
    機器上寫了 `Keycloak__ScopesFromToken=true` 卻毫無反應，因為那版根本沒有讀它的程式碼。
    **順序必須是「先裝版本 → 確認 `/health` 的版本 → 再翻開關」**，反過來會白跑一輪。
+
+#### 使用者清單只列「我們的人」（2026-08-27，`alpha.25`）
+
+`/identity` 預設只列 `hyperdigital` 群組的成員（`KeycloakAdmin:OwnGroup`）。
+取消勾選可列出 realm 全部，但會跳警告，並多出「歸屬」欄標示哪些不是我們的。
+投影表同步同樣只抄群組成員。
+
+**這是防誤觸不是防護。** `manage-users` 是 realm 層級的權限，Keycloak 沒有內建
+「只管我這幾個人」的範圍 —— 取消勾選就看得到也改得到。真正的隔離要靠
+**細粒度管理權限**（把 `manage-users` 限制在該群組）或**分 realm**，兩者都要另外規劃。
+
+兩個刻意的失敗行為：
+
+- **群組查不到（不存在、或少了 `query-groups`）時退回「不過濾」，不是回空清單。**
+  空清單看起來像「這個系統沒有任何使用者」，會讓人往完全錯誤的方向查，
+  而且比「列太多」危險——管理者以為沒事，實際上整個管理介面失能。
+  列太多至少畫面上有警告。
+- **標出歸屬只多打一次 API**（撈一次群組成員再比對），不是逐人打
+  `GET /users/{id}/groups`。那是 N+1，與「清單頁不逐人查角色」同一個理由。
 
 #### 還沒做
 
