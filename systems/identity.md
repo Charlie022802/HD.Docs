@@ -574,6 +574,52 @@ controller，`GET /api/v2.0/qc/config` 回 **200**、`POST /api/v2.0/qc/action` 
 一種東西。**不做這件事的話，端點只認 scope 會把走帳密登入的絕大多數站台全部擋掉。**
 `.199` 部署後用真實帳號驗過：登入回的 access 樹形狀不變，`qc/config` 仍是 200。
 
+### `.199` 已切 Keycloak（2026-08-28 21:18）
+
+`/etc/hd-viewer-api/keycloak.env`：
+
+```
+Auth__Provider=keycloak
+Auth__Keycloak__Authority=https://sso.hdtech.tw/realms/hd
+Auth__Keycloak__ClientId=hd-pacs-client
+Auth__Keycloak__RoleClientId=hd-pacs
+```
+
+**退回帳密軌只要 `rm` 掉這個檔再重啟** —— `appsettings.json` 的預設就是 `database`，
+unit 用 `EnvironmentFile=-` 引用（前面的 `-` 代表缺檔照樣啟動）。不必 `hdctl rollback`。
+
+> 路徑要以 unit 為準：`systemctl cat hd-viewer-api | grep -i environmentfile`。
+> 猜錯路徑**不會有任何錯誤**，只會讓設定靜默不生效（DicomWeb 那次是
+> `hd-pacs-dicomweb` 不是 `hd-dicomweb`）。
+
+**切換前先確認沒人在用**：7 天內 33 次登入全部來自 VPN 來源 `192.168.68.253`，
+沒有第三方。切過去之後**只有在 Keycloak 掛了 `viewer.*` 的人登得進去**，
+其他人會登入成功但 access 全 `null`（客戶端顯示「使用者權限不足」）。
+
+#### 驗收證據：兩條軌的輸出「不一樣」
+
+「重啟後還能動」證明不了換了來源。同一個帳號 `hdtest`、同一支服務，
+兩條軌的 `stationViewer.setting` 逐字不同：
+
+| 鍵 | 帳密軌 | SSO 軌 | 為什麼 |
+|---|---|---|---|
+| `dicomCommunication` | 有 | **沒有** | `viewer.dicom_config` 不在任何職務裡 |
+| `annotation` | 沒有 | **有** | 新拼字只在我們產出的樹裡 |
+| `annotatioin` | 有 | 有 | 過渡期兩個都送 |
+| `import` | 沒有 | **有** | DB 的 role 1 剛好沒設，`viewer.importer` 有 |
+
+#### 驗收證據：端點的正負對照
+
+同一個端點、同一個 payload（`SourceRefs` 空陣列，放行也刪不到東西），只換職務：
+
+| `hdtest` 的職務 | `POST /api/v2.0/qc/action` `Type=Delete` |
+|---|---|
+| `viewer-qc` | **403** |
+| `viewer-qc-admin` | **200** |
+
+**單看 403 只證明「有東西被擋」，單看 200 只證明「有東西通過」** —— 要兩邊都跑過，
+才知道 policy 是在分辨而不是一律放行或一律擋。
+
 ### `viewer_station.update_common_config` 的兩個尖角（會靜默毀資料）
 
 改「沒有 `viewer.dicom_config` 就把送上來的 DICOM 連線設定換掉」時撞到的。
