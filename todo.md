@@ -149,7 +149,9 @@
   `ViewerAccessBuilder` 把 scope 展開成與 `get_access_definition` 逐鍵相同的 access 樹，
   **客戶端零改動**。端點開始實際檢查 scope（原本只有 `[Authorize]`，access 樹純粹是 UI 層）。
   實測：巢狀 composite 會展平（8→14／8→13）、`qc/config` 200 vs `qc/action` Delete 403、
-  部署後真實帳號的帳密軌登入與端點皆正常。**SSO 尚未開啟**（`keycloak.env` 未建，刻意）。
+  部署後真實帳號的帳密軌登入與端點皆正常。**`.199` 已於 2026-08-28 21:18 切成 SSO**（建 `/etc/hd-viewer-api/keycloak.env`）；
+  驗收證據是「兩條軌的輸出逐字不同」與「同一 payload 換職務 403↔200」，不是「服務還活著」。
+  退回只要 `rm` 那個 env 檔再重啟。**目前只有 `hdtest` 在 Keycloak 有 `viewer.*` 角色。**
   順手修掉一個會靜默毀資料的 bug，詳 [systems/identity.md](systems/identity.md)。
 - [ ] **`.163` 還停在 `alpha.3`**（2026-08-28 擱置）：那天連不到正確的那一台 ——
   `192.168.68.163` 在兩條 VPN 通道上指到不同機器，而兩台是複製 VM、主機名與 machine-id
