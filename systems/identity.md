@@ -638,6 +638,23 @@ unit 用 `EnvironmentFile=-` 引用（前面的 `-` 代表缺檔照樣啟動）�
 `ConfigController.WithStoredDicomCommunications` 是純函式，9 條測試釘住，
 其中 5 條專門釘「絕不產出 JSON null」。
 
+#### 攔截已實機驗證（2026-08-28，`.199` 走 SSO）
+
+用 `hdtest`（有 `viewer.settings`、**沒有** `viewer.dicom_config`）實際存一次設定，
+送出 `localAETitle=GUARD_TEST_BAD` 與一個無害的新鍵 `__guardTest`：
+
+| 檢查 | 結果 |
+|---|---|
+| `AE_MAIN.AE_TITLE` | `HDPACS` —— 送上來的值被擋掉 |
+| `__guardTest` | 有寫進去 —— **不是整包拒絕，只擋 DICOM 那段** |
+| `AUTO_FETCHING`／`AUTO_TRANS_AE_LIST` | 都不是 NULL —— 第二個尖角也避開了 |
+| 遠端 AE 列數 | 未變 —— 「把現值寫回去」是冪等的 |
+
+**光看「AE Title 沒被改」不夠**，那也可能是整個請求失敗。要同時看到「該擋的擋了、
+該過的過了」，才知道它在分辨而不是全部拒絕。
+
+測前備份 `HD_CONFIG`／`AE_MAIN`／`AE_CONFIG`，測後逐欄位比對，除時間戳外完全相同。
+
 > 這兩個尖角**不是我們加的**，是既有 proc 的行為。任何人要改 `update_common_config`
 > 的呼叫端都會踩到，所以記在這裡而不是只寫在程式碼註解裡。
 
