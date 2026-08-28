@@ -549,7 +549,9 @@ ViewerWebApi 拿 token 的 scope，在自己這邊展開成**三個 section 的�
 
 ### 撿到的既有問題
 
-- `setting.screen`：DB 三個角色都有，**客戶端從頭到尾沒讀過**。死鍵。
+- `setting.screen`：DB 三個角色都有，**客戶端從頭到尾沒讀過**。死鍵，而且原因已知 ——
+  `SettingsForm.LoadAccessDefinition` 就寫著「螢幕設定併入登入畫面的 StartupSettingsForm」，
+  按鈕搬走了、權限鍵留著。可以安全移除。
 - `hangingProtocol`：`.148` 的 role 1 在 `mammoViewer` 底下沒有它，但 `stationViewer` 有，
   role 2／4 兩邊都有。看起來是手改 JSON 漏掉的，不是設計。影響僅限服務帳號。
 

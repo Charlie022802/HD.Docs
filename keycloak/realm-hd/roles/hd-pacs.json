@@ -1,6 +1,6 @@
 {
   "client": "hd-pacs",
-  "roleCount": 17,
+  "roleCount": 27,
   "roles": [
     {
       "composite": false,
@@ -88,6 +88,70 @@
       "composite": false,
       "description": "報告寫入",
       "name": "report.write"
+    },
+    {
+      "composite": true,
+      "composites": [
+        "hd-pacs:viewer-user",
+        "hd-pacs:viewer.qc"
+      ],
+      "description": "看片端品質管制。在 viewer-user 之上可修改、合併、分割、搬移檢查。不含刪除。",
+      "name": "viewer-qc"
+    },
+    {
+      "composite": true,
+      "composites": [
+        "hd-pacs:viewer-qc",
+        "hd-pacs:viewer.qc_delete"
+      ],
+      "description": "看片端品質管制（含刪除）。刪除檢查、序列、影像皆不可逆，只給實際需要的人。",
+      "name": "viewer-qc-admin"
+    },
+    {
+      "composite": true,
+      "composites": [
+        "hd-pacs:viewer.importer",
+        "hd-pacs:viewer.query_retrieve",
+        "hd-pacs:viewer.settings",
+        "hd-pacs:viewer.use"
+      ],
+      "description": "看片端一般使用者。可看片、查詢／取回、叫起匯入工具、修改個人設定。不含品質管制與 DICOM 連線設定。",
+      "name": "viewer-user"
+    },
+    {
+      "composite": false,
+      "description": "DICOM 連線設定",
+      "name": "viewer.dicom_config"
+    },
+    {
+      "composite": false,
+      "description": "匯入工具",
+      "name": "viewer.importer"
+    },
+    {
+      "composite": false,
+      "description": "品質管制",
+      "name": "viewer.qc"
+    },
+    {
+      "composite": false,
+      "description": "品質管制刪除",
+      "name": "viewer.qc_delete"
+    },
+    {
+      "composite": false,
+      "description": "查詢／取回",
+      "name": "viewer.query_retrieve"
+    },
+    {
+      "composite": false,
+      "description": "看片端設定",
+      "name": "viewer.settings"
+    },
+    {
+      "composite": false,
+      "description": "看片端登入",
+      "name": "viewer.use"
     },
     {
       "composite": false,
