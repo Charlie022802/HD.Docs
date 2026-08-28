@@ -151,6 +151,10 @@
   實測：巢狀 composite 會展平（8→14／8→13）、`qc/config` 200 vs `qc/action` Delete 403、
   部署後真實帳號的帳密軌登入與端點皆正常。**SSO 尚未開啟**（`keycloak.env` 未建，刻意）。
   順手修掉一個會靜默毀資料的 bug，詳 [systems/identity.md](systems/identity.md)。
+- [ ] **`.163` 還停在 `alpha.3`**（2026-08-28 擱置）：那天連不到正確的那一台 ——
+  `192.168.68.163` 在兩條 VPN 通道上指到不同機器，而兩台是複製 VM、主機名與 machine-id
+  都一樣（見 [environments.md](environments.md)）。**兩台版本不一致中**，
+  下次能連上正確的機器時補裝。裝之前先跑那份最小身分檢查。
 - [ ] **Viewer 切 Keycloak — 雙軌（2026-08-17 決策）**：醫院封閉網路連不到 sso.hdtech.tw，**之後會在各醫院內部自建 Keycloak**（尚未架設）。→ 登入這塊**可提前實作**（Authority 指院內位址、由設定決定），**但不替換現行 WebApi 帳密登入**（`LoginForm.CheckUser` → `/api/v2.0/user/login`）；兩條路並存、設定切換，院內 SSO 到位才開。AuthZ 仍查 DB。詳 [systems/identity.md](systems/identity.md)。
   **⚠️ 2026-08-27 推翻「不替換」**：hd-web-server 確定淘汰，它就是那條帳密路的實作，
   沒有第二軌可留 → 看片端的 Keycloak 登入從「並存」變成**取代**，而且是 REQ-024 整條路的**瓶頸**
