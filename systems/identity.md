@@ -460,21 +460,45 @@ pacs-admin （composite）
 
 ### 六個 scope（粒度取自客戶端的 if，不是取自任何一個站台的角色表）
 
-```
-viewer.use              總開關（沒有它＝現在的 null）
-viewer.query            queryRetrieve  -> 「查詢／取回」分頁（MainForm.cs:173）；對外發 C-FIND/C-MOVE
-viewer.import           import         -> 查詢畫面的匯入按鈕（MainForm.cs:134）；會寫入影像
-viewer.qc               qualityControl 整棵（QCForm.cs 17 處）；會改動既有檢查的歸屬
-viewer.settings         setting 整棵（含 mammoTool，不含 dicomCommunication）
-viewer.settings.dicom   setting.dicomCommunication
-```
+| Key | 顯示名 | Category | 對應的 access 鍵與客戶端位置 |
+|---|---|---|---|
+| `viewer.use` | 看片端登入 | Read | 總開關。沒有它＝現在的 `null`，`LoginForm.cs:262` 擋下 |
+| `viewer.query_retrieve` | 查詢／取回 | Read | `queryRetrieve` →「查詢／取回」分頁（`MainForm.cs:173`）。對外發 C-FIND／C-MOVE |
+| `viewer.importer` | 匯入工具 | Write | `import` → 查詢畫面的匯入鈕（`MainForm.cs:134`） |
+| `viewer.qc` | 品質管制 | Write | `qualityControl` 整棵（`QCForm.cs` 17 處）。會改動既有檢查的歸屬 |
+| `viewer.settings` | 看片端設定 | Write | `setting` 整棵（含 `mammoTool`，不含 `dicomCommunication`） |
+| `viewer.dicom_config` | DICOM 連線設定 | Admin | `setting.dicomCommunication` |
+
+**命名遵循現行慣例：單層 `{產品}.{動作}`、多字用底線**（比照 `admin.api_keys`）。
+最初提的 `viewer.settings.dicom` 是兩層，會成為 15 個既有 scope 裡唯一的例外，已改掉。
+
+`query_retrieve` 不簡寫成 `query`，是要跟 DicomWeb 的查詢區分——那是 QIDO，這是 C-FIND／C-MOVE。
+
+`viewer.importer` 不叫 `viewer.import`：那顆按鈕**只是去啟動 `HD.Importer.exe`**
+（`MainForm.cs:buttonImporter_Click`），本身不匯入任何東西，跟 DicomWeb 那個要綁 AE Title 的
+`import.write` 是兩回事，名字要看得出差別。
+
+`viewer.use` **刻意保留成顯式的總開關**，不用「一個 `viewer.*` 都沒有」去推導 ——
+推導那條會讓「給了設定權限但仍不准開 Viewer」變成無法表達，而且日後加新 scope 時語意會悄悄改變。
+
+實作上還要：加 `ScopeProduct.Viewer` 列舉值（主控台的「依產品分組」才顯示得出來）；
+**六個全部 `ApiKeyAssignable: false`**，理由同 `admin.*` —— API Key 是機器身分，
+「能不能開看片端」對它沒有意義。
+
+### 端點必須真的擋（2026-08-27 決策）
+
+**現況是個缺口**：`ViewerWebApi` 的 `QcController` 只有 `[Authorize]`（登入即可），
+沒有任何 scope 檢查。也就是說 `access` 那棵樹**純粹是 UI 層的**，改一下客戶端就整個繞過去。
+
+導入 scope 的同時，`ViewerWebApi` 的端點要開始實際檢查（`[Authorize(Policy = "ViewerQc")]` 之類）。
+**現在不做，之後就會有人以為它擋得住** —— 而「以為擋得住」比「知道擋不住」危險。
 
 ViewerWebApi 拿 token 的 scope，在自己這邊展開成**三個 section 的完整結構**，
 形狀與現行回傳一模一樣——**客戶端 `GetSectionByMode` 零改動**。
 
 **為什麼是這個粒度：**
 
-- **`viewer.settings.dicom` 必須獨立，而且預設不給**：`.148` 的 `remoteAEList` 有 **60 個遠端 AE**，
+- **`viewer.dicom_config` 必須獨立，而且預設不給**：`.148` 的 `remoteAEList` 有 **60 個遠端 AE**，
   改壞會讓整台機器送不出片。這個理由跟角色表怎麼設無關。
 
   **它的性質是「部署限制的備案」，不是一種職務權限**（2026-08-27 使用者說明）：
