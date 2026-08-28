@@ -28,3 +28,34 @@
 - **同一台主機上：不能並存**。新舊 HDPACS 用相同 systemd unit 名（hd-pacs…）、相同埠（2020/3320）、相同目錄（/home/HD/service）、相同本機 DB → 衝突。所以是**取代**，非並存。
 - **.191 舊換新做法**：停用舊 units → 備份舊 /home/HD/service → 裝新版（理想上直接落到 hdctl 的 releases/current 佈局）→ 起。保留舊安裝備份 + 封存舊 ProgramPublish 當退版路徑。
 - **發布資料夾裡：可並存**（純檔案）。舊 ProgramPublish 封存到 `D:\HD-Release\legacy\program-publish\` 即可，跟新 packages 互不干擾。
+
+## ⚠️ `192.168.68.0/24` 在兩個站台重疊（2026-08-28 實際踩到）
+
+**有兩條 VPN 通道，兩邊都用 `192.168.68.0/24`**，哪條起來，`192.168.68.163` 就指到哪一台。
+而且那兩台是**複製出來的 VM**：主機名（`STJOHO_68_163`）、`machine-id`
+（`ed1b2bfc146a41f5ae4411bdbb0413f2`）、MAC（`bc:24:11:96:81:63`）**全部相同**，
+從機器內部完全分辨不出來。
+
+**所以 `machine-id` 在這裡沒有鑑別力。** 真正能分辨的：
+
+| 判準 | 我們的機器 | 誤連的那台 |
+|---|---|---|
+| `uptime -s` | 2026 年（測試機 2026-07 前後） | **`2025-12-24`** |
+| `ls /usr/local/bin/` | 有 `hdctl` | **空的** |
+| `ls /home/HD/service/` | 有 `hd-viewerapi` | 沒有，全是舊系統服務 |
+
+**最可靠的是「內外交叉比對」**：從自己機器 `curl http://<host>:5100/healthz`，
+再在對端 `curl http://127.0.0.1:5100/healthz`，**兩邊版本字串要逐字相同**。
+服務版本騙不了人，而 IP、主機名、machine-id 都會。
+
+Windows 端可先看走哪條通道：`Find-NetRoute -RemoteIPAddress <ip>` ——
+2026-08-28 走的是本地位址 `10.8.0.3` 的「區域連線」，OpenVPN Connect 那條是斷的。
+
+**動手前的最小檢查（唯讀，一行）**：
+
+```bash
+uptime -s; ls /usr/local/bin/ | head -5; ls /home/HD/service/ | grep -c viewerapi
+```
+
+那天差一步就把 `viewerapi` 裝到別人的機器上 —— 擋下來的是「那台沒有 hdctl」這個意外，
+不是我們的流程。

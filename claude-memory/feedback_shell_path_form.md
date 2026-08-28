@@ -34,8 +34,25 @@ metadata:
 `cat /etc/machine-id` + `ip link show <介面> | grep ether` + `uptime`。
 連線行為變怪(逾時、要重試)之後尤其要確認。
 
-**已知指紋(2026-08-26)**:
-- `192.168.68.163`(STJOHO_68_163,內網測試機,CentOS 8):
-  machine-id `ed1b2bfc146a41f5ae4411bdbb0413f2`、MAC `bc:24:11:96:81:63`、當時 uptime 42 天。
-  早上誤連的那台 uptime 是 **244 天**、`/usr/local/bin` 空的、沒有 `hd-viewerapi`
-  —— **uptime 差 200 天就是最快的判別點**。
+**⚠️ 2026-08-28 更正:`machine-id` 與 MAC 在這組機器上「沒有鑑別力」。**
+當天又踩一次(這次差一步就把 viewerapi 裝上去):連到的那台
+machine-id `ed1b2bfc146a41f5ae4411bdbb0413f2`、MAC `bc:24:11:96:81:63`
+—— **與 8/26 記成「測試機」的指紋完全相同**,但開機時間是 `2025-12-24`(約 247 天)、
+`/usr/local/bin` 空的、沒有 `hd-viewerapi`,也就是 8/26 記的「誤連那台」的特徵。
+兩者同時成立只有一種解釋:**這兩台是複製出來的 VM,連 machine-id 和 MAC 都一樣**,
+而 8/26 記下的「測試機指紋」很可能本身就取自錯的那台。
+
+**真正能分辨的兩個判準**:
+1. **開機時間** `uptime -s`:我們的測試機 8/26 時 42 天(開機約 2026-07-15);
+   誤連那台開機是 **2025-12-24**。差 200 天,一眼看得出來。
+2. **`ls /usr/local/bin/`**:我們的機器有 `hdctl`;誤連那台是空的。
+   延伸:`ls /home/HD/service/` 有沒有 `hd-viewerapi`。
+
+**根因是私有網段重疊**:有兩條 VPN 通道,兩邊都用 `192.168.68.0/24`,
+哪條起來 `.163` 就指到哪一台。從 Windows 端可以先看路由:
+`Find-NetRoute -RemoteIPAddress 192.168.68.163` —— 2026-08-28 那次走的是
+本地位址 `10.8.0.3` 的「區域連線」介面,而 OpenVPN Connect 那條是斷的。
+**介面/本地位址不同,就代表對端可能是不同站台。**
+
+**動手前的最小檢查(唯讀,一行)**:
+`uptime -s; ls /usr/local/bin/ | head; ls /home/HD/service/ | grep -c viewerapi`

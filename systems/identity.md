@@ -547,6 +547,54 @@ ViewerWebApi 拿 token 的 scope，在自己這邊展開成**三個 section 的�
   沒有任何錯誤訊息。
 - **`Database/` 底下 20 幾個歷史 SQL 檔的錯字不要動**（改了會破壞既有站台重跑更新鏈），只在新腳本處理。
 
+### 2026-08-28 實作與實測結果
+
+**七個 scope 已建在 Keycloak**（`.191` 主控台 `alpha.27` 的「同步權限清單」自動建的，
+回報「新增 7 項、原本就一致 15 項、另有 2 個非 scope 角色未動」）。三個職務 composite
+手動建，刻意做成**巢狀**：
+
+```
+viewer-user      -> viewer.use, viewer.query_retrieve, viewer.importer, viewer.settings
+viewer-qc        -> viewer-user, viewer.qc
+viewer-qc-admin  -> viewer-qc, viewer.qc_delete
+```
+
+**巢狀會不會被展平，實測答案是「會」**：`hdtest` 只掛 `viewer-qc-admin`，token 拿到
+**14 個權限**（原本 8 個管理權限 + 六個 `viewer.*`，其中四個隔了兩層繼承）；
+換成 `viewer-qc` 是 **13 個**。所以不必改成扁平列法。
+
+`viewer.dicom_config` 不掛在任何職務底下 —— 它是部署備案，逐站台例外。
+
+**端點的授權已實際驗過會分辨**（不是只驗「有沒有 403」）：同一個 session、同一支
+controller，`GET /api/v2.0/qc/config` 回 **200**、`POST /api/v2.0/qc/action` 送
+`Type=Delete` 回 **403**。兩個都 403 只能證明「整支被擋」，什麼也證明不了。
+
+**兩條軌共用同一組 scope**：帳密軌的權限來自 `get_access_definition` 的樹，
+由 `ViewerAccessBuilder.ScopesFromAccess` 反推成同一組 scope 字串，端點因此只認 scope
+一種東西。**不做這件事的話，端點只認 scope 會把走帳密登入的絕大多數站台全部擋掉。**
+`.199` 部署後用真實帳號驗過：登入回的 access 樹形狀不變，`qc/config` 仍是 200。
+
+### `viewer_station.update_common_config` 的兩個尖角（會靜默毀資料）
+
+改「沒有 `viewer.dicom_config` 就把送上來的 DICOM 連線設定換掉」時撞到的。
+**每一種「省事」的寫法都會毀資料，而且沒有任何錯誤訊息。**
+
+1. **送 `"dicomCommunications": null`** —— jsonb 裡 `'null'` 對 `IS NOT NULL` 是**真**，
+   會進到 proc 的 `IF dicom_communications IS NOT NULL` 分支，執行
+   `UPDATE "AE_MAIN" SET "AE_TITLE" = dicom_communications ->> 'localAETitle'`，
+   把**本地 AE Title 更新成 NULL**。整台機器送不出片。
+2. **直接移除該鍵** —— proc 對 `AUTO_FETCHING` 與 `AUTO_TRANS_AE_LIST` 的兩個
+   `insert_update_hd_config` 是**無條件執行**的（在 `IF` 之前），而那支函式是
+   `ON CONFLICT DO UPDATE SET "CONFIG_VALUE" = config_value`，
+   拿到 NULL 就把那兩列設成 NULL。
+
+所以唯一安全的做法是**把現值原封放回去**；讀不到現值就整個拒絕（503），不要猜。
+`ConfigController.WithStoredDicomCommunications` 是純函式，9 條測試釘住，
+其中 5 條專門釘「絕不產出 JSON null」。
+
+> 這兩個尖角**不是我們加的**，是既有 proc 的行為。任何人要改 `update_common_config`
+> 的呼叫端都會踩到，所以記在這裡而不是只寫在程式碼註解裡。
+
 ### 撿到的既有問題
 
 - `setting.screen`：DB 三個角色都有，**客戶端從頭到尾沒讀過**。死鍵，而且原因已知 ——

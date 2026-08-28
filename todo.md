@@ -144,6 +144,13 @@
 - [x] **Keycloak Events 已開**（2026-08-06 使用者自己開：User events + Admin events + 保留期）。註：原生 UI 的 User 欄只顯示 UUID，要點開才見帳號 → 主控台稽核頁（Admin API 拉 events、UUID→帳號人話呈現）解決。
 - [x] **共享事件表落地（2026-08-06 程式面全完成）**：v2.0.27 migration（PRODUCT/CATEGORY 欄+索引，Database `e36249a`）；共用 `DbAuditLogger`（HD.Shared `69e08a2`）；DicomWeb 補欄+category 粗分（`a15cb65`）、Export（`ad734b3`）、主控台（`34ca38d`）皆改寫事件表。**全部完成（2026-08-06 晚）**：.191 已套 migration；DicomWeb（build 205757）/Export（205819）已重部署 .199（部署慣例改為 ~/deploy-dicomweb、~/deploy-export 分資料夾）；**三產品實測入表**：dicomweb/operation（qido）、export/audit（壞 key 攔截）、admin-console/audit（金鑰生命週期），SOURCE_IP 皆正確（VPN 來源 192.168.68.253／本機 ::1）。
 - [x] **DicomWeb 切 Keycloak（2026-08-07/08，HD.Pacs.DicomWeb `4c9535b`→`ed4156b`、HD.Shared `79ee858`，部署 .199 驗證通過）**：Admin UI=OIDC 導頁（登入卡→SSO→後台→RP-initiated 登出）；API JWT=AddKeycloakJwtBearer（aud=hd-pacs 嚴格）+OnTokenValidated 查 HD_USER 補 scopes（無對應→401）；退役 JwtIssuer/DevSigningKeyProvider/dev-token/固定管理帳密/HD_USER.PASSWORD 驗證。新坑三枚：**登出需 id_token_hint→必須 SaveTokens=true**；**DefaultChallengeScheme 別設 OIDC**（未登入會跳過登入卡直彈 Keycloak）；**Valid post logout redirect URIs 用 `+`**。單元 87/87、整合 31/31 綠。
+- [x] **看片端登入雙軌實作完成並部署 `.199`（2026-08-28，viewerapi `0.1.0-alpha.4`）**：
+  `Auth:Provider` 切換（預設 `database`，走 `/etc/hd-viewer-api/keycloak.env`）；
+  `ViewerAccessBuilder` 把 scope 展開成與 `get_access_definition` 逐鍵相同的 access 樹，
+  **客戶端零改動**。端點開始實際檢查 scope（原本只有 `[Authorize]`，access 樹純粹是 UI 層）。
+  實測：巢狀 composite 會展平（8→14／8→13）、`qc/config` 200 vs `qc/action` Delete 403、
+  部署後真實帳號的帳密軌登入與端點皆正常。**SSO 尚未開啟**（`keycloak.env` 未建，刻意）。
+  順手修掉一個會靜默毀資料的 bug，詳 [systems/identity.md](systems/identity.md)。
 - [ ] **Viewer 切 Keycloak — 雙軌（2026-08-17 決策）**：醫院封閉網路連不到 sso.hdtech.tw，**之後會在各醫院內部自建 Keycloak**（尚未架設）。→ 登入這塊**可提前實作**（Authority 指院內位址、由設定決定），**但不替換現行 WebApi 帳密登入**（`LoginForm.CheckUser` → `/api/v2.0/user/login`）；兩條路並存、設定切換，院內 SSO 到位才開。AuthZ 仍查 DB。詳 [systems/identity.md](systems/identity.md)。
   **⚠️ 2026-08-27 推翻「不替換」**：hd-web-server 確定淘汰，它就是那條帳密路的實作，
   沒有第二軌可留 → 看片端的 Keycloak 登入從「並存」變成**取代**，而且是 REQ-024 整條路的**瓶頸**
