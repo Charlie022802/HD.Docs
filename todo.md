@@ -161,10 +161,12 @@
   驗收證據是「兩條軌的輸出逐字不同」與「同一 payload 換職務 403↔200」，不是「服務還活著」。
   退回只要 `rm` 那個 env 檔再重啟。**目前只有 `hdtest` 在 Keycloak 有 `viewer.*` 角色。**
   順手修掉一個會靜默毀資料的 bug，詳 [systems/identity.md](systems/identity.md)。
-- [ ] **`.163` 還停在 `alpha.3`**（2026-08-28 擱置）：那天連不到正確的那一台 ——
-  `192.168.68.163` 在兩條 VPN 通道上指到不同機器，而兩台是複製 VM、主機名與 machine-id
-  都一樣（見 [environments.md](environments.md)）。**兩台版本不一致中**，
-  下次能連上正確的機器時補裝。裝之前先跑那份最小身分檢查。
+- [x] **`.163` 補裝 `alpha.4`（2026-08-30），兩台同版**。8/28 那次是連到別台（見
+      [environments.md](environments.md) 的網段重疊）；這次三項判準全中：
+      `uptime -s = 2026-07-15`（**正好對上記憶裡由 8/26 的 42 天推算的日期**，
+      所以錯的是 `machine-id` 那條指紋不是開機時間）、`/usr/local/bin` 有 `hdctl`、
+      `hd-viewerapi` 計數 1。裝後 `Auth provider=database`，行為不變。
+      **注意兩台的 DB 不同**：`.163` 是 `127.0.0.1`（自己的本機庫），`.199` 指向 `.191`。
 - [ ] **Viewer 切 Keycloak — 雙軌（2026-08-17 決策）**：醫院封閉網路連不到 sso.hdtech.tw，**之後會在各醫院內部自建 Keycloak**（尚未架設）。→ 登入這塊**可提前實作**（Authority 指院內位址、由設定決定），**但不替換現行 WebApi 帳密登入**（`LoginForm.CheckUser` → `/api/v2.0/user/login`）；兩條路並存、設定切換，院內 SSO 到位才開。AuthZ 仍查 DB。詳 [systems/identity.md](systems/identity.md)。
   **⚠️ 2026-08-27 推翻「不替換」**：hd-web-server 確定淘汰，它就是那條帳密路的實作，
   沒有第二軌可留 → 看片端的 Keycloak 登入從「並存」變成**取代**，而且是 REQ-024 整條路的**瓶頸**
@@ -581,7 +583,17 @@
 - [x] (5) **設定視窗字體隨解析度補正（2026-08-12 完成＋100%已驗收＋已 push，`d1ddd99`）**：Utilities/ResolutionFontScale——（螢幕實體高/1080）÷（DeviceDpi/96）=Windows 沒補足的倍率（>1.05 才動、上限 2×）。初版只放大 Form.Font，導致高解析＋100%縮放的機器字變大但控制項 Size/Padding 沒跟上→版面重疊裁切；改用 `Control.Scale(SizeF)`（WinForms AutoScaleMode.Font 做 DPI 縮放的同一套機制）一次縮放 Bounds＋Padding＋Margin＋字體，且會遞迴套到以 Controls 掛入的嵌入子設定頁，SettingsForm 呼叫點精簡為對自身呼叫一次即可。**只動設定頁**，100% 已使用者驗收正常。同批曾嘗試改行程 DPI awareness 修 MPR 3D 在 150% 填不滿右下象限的問題，多輪排查未解且引發新迴歸，已整批還原（MPR 3D 恢復原本行為，100%/150% 皆確認無問題）。
   - [x] **Ctrl+滾輪微調（2026-08-12 完成＋已驗收，`b4d5163`）**：自動倍率只能抓個大概（同解析度在 14吋筆電與 24吋桌機上密度差很多，純靠解析度換算不出「多大」；曾試過用真實 PPI＋LocalConfig.ScreenDiagonalInches，放棄），所以改成**混用**：自動顧開箱預設，Ctrl+滾輪讓醫師調到舒服為止，值存本機設定 `Settings.settingsFontScale`（顯示偏好不進 DB UserConfig，否則會被設定頁的變更偵測判成「設定已修改」）。倍率＝自動 × 使用者（0.7~2.5，每格 ±10%）。**關鍵坑：`Control.Scale()` 只縮放 Bounds/Padding/Margin、不動字體**——這就是先前「版面正常但字仍太小」的原因；只改 Font 又會因顯式設 Font 的控制項不吃 ambient 繼承而字大框沒跟上。正解是兩件事都自己做（關 AutoScaleMode →遞迴縮放字體→Scale() 排版面→還原）。另：`GetAutoScale` 依表單所在螢幕計算，建構當下表單還沒掛進 MainForm 會取到主螢幕，之後顯示在別顆螢幕就會回不同值、增量 delta 全錯，故自動倍率須在建構時定案不再重算。
 
-## 統一部署框架（hdctl）
+## 統一部署框架
+- [ ] **hdctl 的 SELinux 警告自相矛盾，而且與事實相反**（2026-08-30 於 `.163` 撞到）：
+      重裝時印出「`semanage 登記 bin_t 失敗：ValueError: 文件上下文 ... 已定義`」，
+      下一行卻是「**找不到 semanage**，已用 chcon 直接標記；**全機 relabel 後需重裝**」。
+      兩者不可能同時為真。實測：`semanage` 在 `/usr/sbin/semanage`、`fcontext` 規則
+      **已持久登記**、實際標籤是 `bin_t`。所以那是**正常重裝**（上次就登記過了），
+      relabel 反而會把 `unconfined_u` 修正成 `system_u`。
+      根因看來是把 semanage 的任何失敗都當成「沒有 semanage」而掉進 chcon 後備路徑。
+      **正確行為是連警告都不印**。誤導性的警告比沒有訊息更花時間 ——
+      照著它做的人會在 relabel 之後白重裝一次。
+（hdctl）
 - [x] 階段一 MVP（2026-08-10）：`hdctl/` repo——hdctl.py（install/rollback/list/prune、sha256 驗證、symlink flip、健檢失敗自動退回）+ hdpack.py 打包 + manifest（範例 HD.Export/deploy/hdctl-manifest.json）；WSL 全流程自測通過。
 - [x] .191 試裝 hd-export 驗證（2026-08-10）：install/更新/rollback 全過（HTTP 200）；踩到 init_t 讀 user_home_t symlink 被 SELinux 擋 → hdctl flip 後自動標 usr_t（已修）。/etc/hd/db.env 已建於 .191。
 - [x] 階段二主體（2026-08-10）：hdctl 0.2.0（apply 協調包/links/start·stop·restart·status/migrate 登記；WSL 驗過 apply 全驗擋竄改）；**pacs 元件（7 服務）已遷 .191** 並修三顆 CWD 雷（LoggingPlatform 緩衝七倍事件=已修+重佈、CacheControl/History 錨 BaseDirectory=下次發版帶上）；adminconsole 包已備（hd-adminconsole-0.1.0-alpha.1+20260810092901.tgz）。
