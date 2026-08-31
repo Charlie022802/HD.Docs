@@ -246,6 +246,49 @@ hd-web-server），各自登入取得各自的 cookie 是對的；影像改走 V
 實測 5.9 秒（每次約 16ms）且與下載並行，目前不是瓶頸。要不要開批次端點，
 等有更大的檢查（上千張）實測過再決定。
 
+### 授權改走 ViewerWebApi（2026-08-31，viewerapi `alpha.5`）
+
+`/api/v2.0/license` 四個端點：`device`／`by-fingerprint`／`request`／`seen`，
+對應客戶端 `LicenseRepository` 的四個方法。`ApiBaseUrl` 留空仍走直連分支。
+
+**回應協定刻意分三種，客戶端靠它決定要不要記住：**
+
+| 回應 | 意思 | 客戶端 |
+|---|---|---|
+| `200` ＋ 物件／陣列 | 找到了 | 用 |
+| `200` ＋ `null` | 沒有那一列（正常結果） | 當作沒有 |
+| `404` | 這台伺服器不支援授權 | **記住，不再問** |
+| `5xx` | 暫時故障 | 這次放棄，**不記住** |
+
+混在一起就沒得選：把暫時故障記成「不支援」，資料庫抖一下就停掉整個行程的授權；
+反過來則是每次啟動都白等一輪重試。**「表在不在」交給 PostgreSQL 的 `42P01` 回答，
+不自己先探測**——探測失敗跟表不存在長得一樣。
+
+**三個配套**：
+
+1. `SendRequestAsync` 加 `maxRetries` 覆寫。預設 5 次、每次隔 2 秒，一支打不通要 8 秒；
+   授權一次判定打三支 ＝ **24 秒卡在登入按鈕上**，而使用者只看到「按了沒反應」。
+2. 例外帶上 HTTP 狀態碼。原本只有訊息字串，要分辨 404 就得比對字串——
+   那種判斷會在改一句 log 的時候安靜地失效。
+3. `APP_VERSION` 的截斷移到伺服器，寬度用 `information_schema` **量**而不是用資料庫
+   版本號推（更新鏈與實際結構會分岔）。
+
+**四取二的指紋判定沒有搬到伺服器。** 那個規則寫成 SQL 就變成第二份正本，兩邊遲早不一致。
+SQL 只做粗篩（任一項相同就回），認不認是客戶端 `FingerprintMatcher` 的事。
+
+#### 實測（Viewer 對 `.199`，DB 是 `.191`）
+
+| # | 情境 | 結果 |
+|---|---|---|
+| A | 直接登入 | `seen` 走 API，`LAST_SEEN_AT` 與 `APP_VERSION` 都更新；判定 28ms |
+| B | 刪掉 `license.lic` | 取回落地，檔案與原始備份**逐位元相同**（794 bytes） |
+| C | `license.lic` 與 `device.json` 都刪 | `by-fingerprint` 認回**同一個** `DEVICE_ID`，**清冊維持 1 列** |
+
+**C 是最重要的一項**，它等於模擬醫師的電腦重灌：不知道自己是誰、只憑四項指紋，
+把身分與授權都認回來。失敗的話會多出一列重複的機器——不報錯、不影響使用，
+只有對帳時才發現。**B 證明那 794 個位元組（含換行與跳脫字元）經過
+`jsonb_build_object` → HTTP → `JsonDocument` 一整趟沒被動到一個位元**，否則簽章驗不過。
+
 ### 待補：多院區過濾繞過（2026-08-25 發現）
 `viewer_station.search_study` **沒有院區過濾**。2026-08-25 已把 `query_dicom`、C-MOVE、
 QIDO/WADO/DELETE/UPS、MWL、匯出全部補上，但**醫師在 Viewer 上看到的檢查清單走的是這支，
@@ -258,17 +301,11 @@ QIDO/WADO/DELETE/UPS、MWL、匯出全部補上，但**醫師在 Viewer 上看�
   `DicomQuery` 20／`QualityControl` 18／`SystemConfig` 10。
   `AccessDefinition.GetValue()` 那兩處是**死碼**（全專案無呼叫端，登入回應已帶 access），
   隨第 4 步一起刪。
-- **⚠️ 第 4 步（拿掉 DB 連線能力）的前置：授權機制目前直連 DB。**
-  `LicenseRepository` 四個方法（`FindByDeviceId`／`FindByFingerprint`／`SubmitRequest`／
-  `ReportSeen`）完全沒有 gateway 分支——`Licensing/` 整個目錄裡 `ApiBaseUrl` 一次都沒出現。
-  它是 08-14 之後長出來的，寫在這份施工順序之後，兩邊沒互相看過。
-
-  **而且它踩到授權設計的核心前提。** 當初選「DB 當信箱」的理由白紙黑字是
-  「看片端本來就要連醫院主機的 PostgreSQL 才能看片 ⇒ 能看片就一定連得到 DB」
-  （見 [viewer-license-design.md](../viewer-license-design.md)），第 4 步正是把那個前提拆掉。
-  直接執行的後果與該文件「部署前提」那節記載的失效鏈**完全相同**：
-  查不到自己那列（被 catch 吞掉）→ 走離線流程 → 14 天暫用期 → 期滿被擋，
-  **而「怎麼註冊」那條路根本不存在**。症狀是「裝上去兩週後醫師突然登不進去」。
-  修法：ViewerWebApi 開對應端點 + 客戶端加 gateway 分支。**要排在第 4 步之前。**
+- ~~**第 4 步的前置：授權機制直連 DB**~~ **已完成（2026-08-31，`9e20c00`／viewerapi `alpha.5`）**，
+  見下方「授權改走 ViewerWebApi」。
+- **⚠️ 第 4 步還不能做，卡在部署面而不是程式面。** 拿掉 `Database` 區塊之後，
+  **沒有裝 ViewerWebApi 的站台會整個不能用**——目前只有 `.199` 有。
+  若瑟現在的看片端仍是直連資料庫。所以第 4 步的前置條件是
+  「所有在跑的站台都已經裝上 viewerapi 並驗過」，不是「程式碼寫好了」。
 - 跨 instance CT/MR 預取（顯示管線最後一項）。
 - 接入共用日誌。
