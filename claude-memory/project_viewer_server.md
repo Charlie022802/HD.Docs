@@ -1,6 +1,6 @@
 ---
 name: project-viewer-server
-description: "ViewerWebApi(HD.DicomImageViewer.Server)—看片端只對它+DicomWeb、不再直連DB;Server端API做完、客戶端只接了1處剩56處;hdctl獨立元件;第一鏟=診斷包上傳"
+description: "ViewerWebApi(HD.DicomImageViewer.Server)—看片端只對它+DicomWeb、不再直連DB;伺服器端與客戶端遷移都已寫完,2026-08-31 用真 Viewer 端到端跑通(374 張、12.5 秒、零錯誤);剩第4步拿掉DB連線,前置=授權機制還直連DB"
 metadata: 
   node_type: memory
   type: project
@@ -30,7 +30,7 @@ metadata:
 
 **🔑 架構定案(2026-08-17,使用者定調):看片端之後「只對 ViewerWebApi 跟 HD.DicomWeb 說話」,不再直接讀資料庫。** 舊 `DownloadHost`(DICOMServer)退場、影像改走 DicomWeb WADO-RS,`localconfig.json` 從「DB 帳密+DownloadHost」瘦成兩個網址。**部署走 hdctl(同 .191/.199),先獨立成自己一個元件 `viewerapi`,日後要跟別的整併再說**——每間醫院都會裝這一支。
 
-**實查現況(2026-08-17,比下方 2026-07 舊敘述新):** Server 端五個 controller 都在(Auth/Query/KeyImage/Config/QC);**客戶端側幾乎還沒接——`ViewerApiGateway` 開關做好了,但只有 `DicomQuery` 裡 1 處真的走 API,其餘 56 處仍直連 DB**(DicomQuery 26/QualityControl 17/SystemConfig 11/AccessDefinition 2)。→ 工作量全在客戶端這 56 處。
+**實查現況(2026-08-17)——⚠️ 已被 08-25／08-31 的紀錄取代,下面那個「剩 56 處」的數字現在是錯的:** Server 端五個 controller 都在(Auth/Query/KeyImage/Config/QC);**客戶端側幾乎還沒接——`ViewerApiGateway` 開關做好了,但只有 `DicomQuery` 裡 1 處真的走 API,其餘 56 處仍直連 DB**(DicomQuery 26/QualityControl 17/SystemConfig 11/AccessDefinition 2)。→ 工作量全在客戶端這 56 處。
 
 **施工順序定案:診斷包上傳(REQ-016)先做,刻意排在 56 處遷移之前。** 它是這支服務上最獨立的一塊(不碰既有查詢、不改 stored proc、失敗只是少一份診斷資料),拿它當第一個真正上線的功能,先把「進每間醫院+hdctl 部署更新」走通;之後遷移就是往一台已在跑的服務加端點。詳 [[project_viewer_diagnostics]]。
 
@@ -54,6 +54,36 @@ metadata:
   第一次慢 2.5 倍、之後快 5.5 倍。MaxParallel 4→8。縮圖預熱已記待辦。
 - **順手修掉伺服器端既有 bug**:get_qc_tree／query_dicom 是 SETOF jsonb,controller 用
   SelectJson(ExecuteScalar)**只拿第一列**。加了 PgProxy.SelectJsonRows。
-- **正在進行**:把 viewerapi 佈到 `.163`(醫院形態主機),卡在 hdctl 的三顆坑,見
-  [[project_hdctl_hospital_host]]。**第一次真的 Viewer 跑這條路還沒發生過**——
-  到目前為止全是 curl 與測試程式驗契約。
+- ~~**正在進行**:把 viewerapi 佈到 `.163`~~ hdctl 的坑已全修(見 [[project_hdctl_hospital_host]])。
+
+**✅ 端到端實測完成(2026-08-31):第一次真的用 Viewer 跑完整條路,整條都通、零錯誤。**
+`ReleaseEnforce` 組建對 `.199:5100`(`hd-viewer-api alpha.4`,DB 指 `.191`),
+一筆 **374 張**的檢查、清空本機快取冷啟。請求分佈:image?type=dicom **374**(= 張數)
+/jpeg 27/thumbnail 5、dicom-info 374、studies+study-tree+keyimage+config 各 1、
+**wado-uri 0**。開啟檢查→最後一張 **12.5 秒**;dicom-info 與下載幾乎同時起跑(差 34ms),
+中繼資料查詢沒有卡在下載前面。
+
+**⚠️ 客戶端遷移其實 08-25 就寫完了**(`480cc3f`,分支數 DicomQuery 20/QualityControl 18/
+SystemConfig 10),`docs/systems/viewer.md` 的待辦到 08-31 都還寫著「剩下 25 個方法」,
+害我一度以為要重寫。`AccessDefinition.GetValue()` 那兩處是**死碼**(全專案無呼叫端)。
+
+**抓到並修掉:每次登入送兩次請求(`7b35c41`)。** `InitializeWebApiClient` 建兩個
+`ViewerWebApiClient`(查詢用 `apiClient`、影像用 `webApiClient`)。**遷移前兩者指向不同主機**
+(影像走 `DownloadHost` 的 hd-web-server),各自登入是對的;影像改走 ViewerWebApi 之後
+兩者同一台,第二次純屬重複。**代價不是慢,是密碼打錯一次會在伺服器留兩筆失敗紀錄**——
+醫院若設「連續 N 次失敗鎖帳號」門檻直接砍半,而畫面上看不出來。改成共用同一個實例
+(cookie 自然共用)+`ReferenceEquals` 判斷。**但 `apiClient` 必須同時改成
+`useViewerApiImage: true`**——它原本是預設 `false`,直接指過去會讓影像悄悄退回
+`/api/v2.0/wado-uri`:不報錯、影像照樣顯示,只是繞過整個 ViewerWebApi 影像層。
+**所以驗證要看兩件事(登入次數 + 影像端點),只數登入次數正好會漏掉自己剛弄壞的那個。**
+
+**觀察到沒改:`dicom-info` 每張一次**(374 張→374 次)。**不是遷移造成的**,直連 DB 那條
+分支同樣 374 次,差別只在往返從本機 DB 變成 HTTP。5.9 秒且與下載並行,目前不是瓶頸;
+要不要開批次端點等上千張的檢查實測過再說。
+
+**⚠️ 第 4 步(拿掉 DB 連線能力)的前置:授權機制目前直連 DB。** `LicenseRepository` 四個方法
+完全沒有 gateway 分支(`Licensing/` 裡 `ApiBaseUrl` 一次都沒出現)。它是 08-14 之後長出來的,
+寫在施工順序之後,兩邊沒互相看過。**而且它踩到授權設計的核心前提**——當初選「DB 當信箱」
+的理由白紙黑字是「能看片就一定連得到 DB」,第 4 步正是把那個前提拆掉。直接做下去的失效鏈
+與 [[project_viewer_license]] 記載的一模一樣:查不到→離線流程→14 天暫用→期滿被擋,
+**而「怎麼註冊」那條路根本不存在**,症狀是「裝上去兩週後醫師突然登不進去」。

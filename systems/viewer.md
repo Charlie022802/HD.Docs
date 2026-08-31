@@ -205,6 +205,47 @@ body `{id, pw}`，與 ViewerWebApi 同形狀），cookie 存在 Singleton 的 `C
 不改 stored proc、失敗了也只是少一份診斷資料。拿它當第一個真正上線的功能，先把
 「進到每間醫院、hdctl 部署與更新」這條路走通；之後遷移就是往一台已經在跑的服務上加端點。
 
+### 端到端實測：第一次真的用 Viewer 跑完整條路（2026-08-31）
+
+在此之前全部是 curl 與測試程式驗契約。這次拿 `ReleaseEnforce` 組建對 `.199:5100`
+（`hd-viewer-api 0.1.0-alpha.4`，DB 指 `.191`）實跑，一筆 374 張的檢查，清空本機快取冷啟。
+
+**結果：整條路都通，零錯誤。** 一輪的請求分佈：
+
+| 端點 | 次數 |
+|---|---|
+| `/api/v2.0/image/…?type=dicom` | 374（＝該檢查的張數） |
+| `…?type=jpeg` / `…?type=thumbnail` | 27／5 |
+| `/api/v2.0/query/dicom-info` | 374 |
+| `/api/v2.0/query/studies`／`study-tree`／`keyimage` | 各 1 |
+| `/api/v2.0/config/user`／`config/common` | 各 1 |
+| `/api/v2.0/wado-uri`（舊端點） | **0** |
+
+時間：開啟檢查 → 最後一張 **12.5 秒**。`dicom-info` 與影像下載幾乎同時起跑
+（相差 34ms），那 374 次中繼資料查詢**沒有卡在下載前面**。
+
+#### 抓到並修掉：每次登入送兩次請求（`7b35c41`）
+
+`InitializeWebApiClient` 建兩個 `ViewerWebApiClient`——`apiClient`（查詢）與
+`webApiClient`（影像）。**遷移前兩者指向不同主機**（影像走 `DownloadHost` 上的
+hd-web-server），各自登入取得各自的 cookie 是對的；影像改走 ViewerWebApi 之後
+兩者指向同一台，第二次登入純屬重複。
+
+**代價不是慢，是密碼打錯一次會在伺服器上留下兩筆失敗紀錄。** 醫院若設了
+「連續 N 次失敗鎖帳號」，實際門檻直接砍半，而畫面上完全看不出來。
+
+改法是共用同一個實例（cookie 自然共用），`CheckUser` 以 `ReferenceEquals` 判斷。
+**但 `apiClient` 必須改成 `useViewerApiImage: true`** —— 它原本用預設值 `false` 建立，
+直接把 `webApiClient` 指過去會讓影像悄悄退回 `/api/v2.0/wado-uri`：不報錯、影像照樣顯示，
+只是繞過整個 ViewerWebApi 影像層。所以驗證要看兩件事，只數登入次數會漏掉這個。
+
+#### 觀察到但沒改：`dicom-info` 是每張一次
+
+374 張 → 374 次 `{"type":"objectDataset","objectRef":N}`。**這不是遷移造成的**——
+直連 DB 那條分支做的是同一件事、同樣 374 次，差別只在往返從本機資料庫變成 HTTP。
+實測 5.9 秒（每次約 16ms）且與下載並行，目前不是瓶頸。要不要開批次端點，
+等有更大的檢查（上千張）實測過再決定。
+
 ### 待補：多院區過濾繞過（2026-08-25 發現）
 `viewer_station.search_study` **沒有院區過濾**。2026-08-25 已把 `query_dicom`、C-MOVE、
 QIDO/WADO/DELETE/UPS、MWL、匯出全部補上，但**醫師在 Viewer 上看到的檢查清單走的是這支，
@@ -213,6 +254,21 @@ QIDO/WADO/DELETE/UPS、MWL、匯出全部補上，但**醫師在 Viewer 上看�
 
 ## 待辦
 - 診斷包上傳端點（REQ-016）＋ hdctl `viewerapi` 元件（第一鏟）。
-- 客戶端側剩下 25 個方法改走 API（上述施工順序）。
+- ~~客戶端側剩下 25 個方法改走 API~~ **已完成（`480cc3f`）**。實查分支數：
+  `DicomQuery` 20／`QualityControl` 18／`SystemConfig` 10。
+  `AccessDefinition.GetValue()` 那兩處是**死碼**（全專案無呼叫端，登入回應已帶 access），
+  隨第 4 步一起刪。
+- **⚠️ 第 4 步（拿掉 DB 連線能力）的前置：授權機制目前直連 DB。**
+  `LicenseRepository` 四個方法（`FindByDeviceId`／`FindByFingerprint`／`SubmitRequest`／
+  `ReportSeen`）完全沒有 gateway 分支——`Licensing/` 整個目錄裡 `ApiBaseUrl` 一次都沒出現。
+  它是 08-14 之後長出來的，寫在這份施工順序之後，兩邊沒互相看過。
+
+  **而且它踩到授權設計的核心前提。** 當初選「DB 當信箱」的理由白紙黑字是
+  「看片端本來就要連醫院主機的 PostgreSQL 才能看片 ⇒ 能看片就一定連得到 DB」
+  （見 [viewer-license-design.md](../viewer-license-design.md)），第 4 步正是把那個前提拆掉。
+  直接執行的後果與該文件「部署前提」那節記載的失效鏈**完全相同**：
+  查不到自己那列（被 catch 吞掉）→ 走離線流程 → 14 天暫用期 → 期滿被擋，
+  **而「怎麼註冊」那條路根本不存在**。症狀是「裝上去兩週後醫師突然登不進去」。
+  修法：ViewerWebApi 開對應端點 + 客戶端加 gateway 分支。**要排在第 4 步之前。**
 - 跨 instance CT/MR 預取（顯示管線最後一項）。
 - 接入共用日誌。
