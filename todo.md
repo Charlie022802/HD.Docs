@@ -69,7 +69,19 @@
 2026-08-24 若瑟資料流失事件的後續。工具＝`HD.Net10/tools/HD.StorageAudit/`（hd-storage-audit + purge-for-resend.sh）。
 - [x] **若瑟資料補回（2026-08-24 完成）**：受損 122 筆 / 748 張 → **復原 79 筆 1066 個檔案零缺漏**（NONDICOM 重送），43 筆 449 張不可復原。同批補完 8089 筆 NEARLINE_BACKUP、126 筆分散兩層的 study 補齊校準（871 檔 1754 MB）。**全庫「線上有檔但無 nearline」已歸零**。
 - [ ] **若瑟升版到 v2.0.27 以上**（唯一能防復發的）：`get_next_delete_study` 在 v2.0.27 才加入「沒有 nearline 副本就不清」的守門，v2.0.22 會把唯一一份刪掉留下空殼——**這就是這次事件的成因，不升就會再發生**。
-- [ ] 若瑟 nearline 空間：VOL 3 已 94.6%（R）、VOL 7 85.9%（Y）。線上 89.9%，且 ARCHIVE 與 ONLINE 是同一個檔案系統（歸檔不會釋放線上空間）。
+- [ ] 若瑟 nearline 空間。**2026-08-31 重量（`VOLUME_CACHE`，資料當下即時）**：
+
+  | 磁區 | 類型 | 已用 | 狀態 | 路徑 |
+  |---|---|---|---|---|
+  | VOL 1 | ONLINE | **89.75%** | Y | `/home/HD/HDPACS_OCACHE01` |
+  | VOL 3 | NEARLINE | **94.63%** | **R** | `/home/HD/HDPACS_NCACHE01` |
+  | VOL 7 | NEARLINE | **86.48%** | Y | `/home/HD/HDPACS_NCACHE02` |
+  | VOL 8 | ARCHIVE | **89.75%** | Y | `/home/HD/HDPACS_ACACHE01`（`IS_OPEN=F`） |
+
+  **與先前記錄（VOL3 94.6%／VOL7 85.9%／線上 89.9%）幾乎相同，沒有惡化**，但 VOL 3 仍是紅的。
+  VOL 1 與 VOL 8 的 total／free 完全相同，直接證實「ARCHIVE 與 ONLINE 是同一個檔案系統」——
+  歸檔不會釋放線上空間。
+  下次量的時候有兩個帶日期的樣本，才算得出成長速度；現在只知道「一段時間內沒明顯變化」。
 - [ ] 若瑟 43 筆不可復原的明細送醫院（`/tmp/studies-nondicom-missing.csv`）。送之前值得查兩件事：有沒有被 ROUTE/CSTORE 到別的 AE、modality 分布（部分 CR 可能能從 AGFA PACS 撈回）。
 - [ ] 清若瑟的 285 個 nearline 孤兒檔（`/tmp/orphan-nearline.txt`）——CACHE_DELETE 只刪 online 檔，nearline 實體檔會失去所有指向。建議放一天再刪。
 - [ ] 定期稽核：把「線上有檔但無 nearline」與「三層都沒位置」納入例行檢查（兩者應長期為 0）。

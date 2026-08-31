@@ -92,7 +92,15 @@ dotnet publish ... -c Release -p:EnforceLicense=true
 
 原本 DEBUG 組建吃 `HD_LICENSE_ENFORCE=1` 那條保留不動——快速自測用。
 
-### ⚠️ 部署前提：`Enforce = true` 的版本不能進到 DB `< v2.0.29` 的站台
+### ⚠️ 部署前提：`Enforce = true` 的版本不能進到「沒有 `HD_DEVICE_LICENSE`」的站台
+
+> **2026-08-31 更正：判準是「表在不在」，不是版本號。**
+> 原本這一節寫成「DB `< v2.0.29` 就不行」，並舉若瑟為例。實際查過之後發現
+> **若瑟（`v2.0.22`）那張表是存在的** —— 2026-08-19 前後被單獨補上去，沒走更新鏈
+> （同期的 `SITE`／`PACKAGE_JOB`／`HD_USER_AUDIT_LOG`／`UPS_WORKITEM` 都還沒有，
+> 所以確實只補了這一張）。**用版本號判斷會得到假的否定。**
+> 這就是[更新鏈分岔](josef-db-upgrade-plan.md)的形狀：結構變更存在於某些機器上，
+> 卻沒有經過腳本，於是版本號與實際結構對不起來。
 
 `HD_DEVICE_LICENSE` 是 **`db_update_v2.0.29.sql`** 建的。DB 版本比它舊的站台**沒有那張表**，
 於是：
@@ -117,8 +125,17 @@ dotnet publish ... -c Release -p:EnforceLicense=true
 SELECT to_regclass('public."HD_DEVICE_LICENSE"');   -- NULL 就是不能出強制版
 ```
 
-已知受影響：**若瑟正式機 `10.10.1.148` 目前是 `v2.0.22`**，DB 升級已備妥但 2026-08-26
-決定暫停（見 [josef-db-upgrade-plan.md](josef-db-upgrade-plan.md)）。
+**目前已知的實況（2026-08-31 實際查過三個站台）**：
+
+| 站台 | DB 版本 | `HD_DEVICE_LICENSE` | `APP_VERSION` 寬度 |
+|---|---|---|---|
+| `.191` | `2.0.41` | 有 | **64**（已套 `v2.0.41`） |
+| `.163` | `2.0.26` | 有 | 32 |
+| 若瑟 `10.10.1.148` | `2.0.22` | **有**（單獨補的） | 32 |
+
+**三台都有那張表**，所以強制版目前對三者都不會踩到「無法註冊」那條路。
+但三台的 `APP_VERSION` 寬度不同 —— 客戶端因此要能同時對付 32 與 64，
+見下方「版本字串的欄位寬度」。
 
 ---
 
@@ -158,6 +175,25 @@ SELECT to_regclass('public."HD_DEVICE_LICENSE"');   -- NULL 就是不能出強�
 
 **任何一步失敗都只是安靜退回下一條路**——註冊機制不該有能力讓看片程式開不起來。
 DB 沒有 `HD_DEVICE_LICENSE` 表（舊環境沒跑 migration）也一樣，記一行 log 就走離線。
+
+### 版本字串的欄位寬度（`APP_VERSION`）
+
+`db_update_v2.0.41` 把 `public."HD_DEVICE_LICENSE"."APP_VERSION"` 從 `varchar(32)`
+加寬到 `varchar(64)`。原因是 32 對現在的版本字串已經不夠，而**溢位是靜默的**：
+
+```
+2.4.0+20260831-100434+0800            26 字元  剛好
+2.4.0+20260831-100434+0800.ENFORCE    34 字元  被截成 .ENFOR
+2.5.0-beta.1+20260831-100434+0800     33 字元  掉最後一個字
+```
+
+版控規約在發布前一律用 `-alpha.N` / `-beta.N`，所以下次出交測版就會開始掉字元，
+而掉的是尾端 —— 也就是分辨兩顆同語意版本的 build 唯一靠得住的部分。
+
+**客戶端要同時對付 32 與 64。** 它先送 64，遇到 `22001 value too long` 就記住這個站台
+是舊的、退回 32 重試一次（`LicenseRepository._appVersionMax`）。
+不能讓 `22001` 掉進通用的 catch —— 那會讓 `ReportSeen` 回 `null`，上層當成「查不到這一列」，
+於是 `LAST_SEEN_AT` 靜默停止更新，而那正是判斷「哪些機器還在用」的依據。
 
 ### 暫用期
 
