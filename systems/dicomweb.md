@@ -47,14 +47,40 @@ Single Frame Image／Multi-frame Image／Video／**Text**。
 |---|---|---|---|
 | Encapsulated PDF | `application/pdf` | Text 類，標準行為 | ✅ `alpha.17` |
 | Structured Report | `text/html` | Text 類，標準行為 | ✅ `alpha.18` |
-| Waveform（ECG） | 未定 | **標準沒有定義**，屬我們的擴充 | 未做 |
+| Waveform（ECG） | `image/png` | **標準沒有定義**，屬我們的擴充 | ✅ `alpha.20` |
 
 **PDF 不是渲染，是取出**——它本來就完整躺在 `EncapsulatedDocument` 欄位裡。
 **SR 才是真正的渲染**，而且做壞比不做糟，理由見 `SrHtmlRenderer` 的類別註解
 （同一個射出分率會出現多次，哪個是代表值只能靠修飾語分辨）。
 
-**波形要另外宣告。** 標準的 rendered 類別裡沒有它，所以那會是 `extensions` 區塊裡的擴充，
-不能混在標準行為裡講——否則將來別人照標準寫的客戶端對不上時，沒有地方查得到這是誰的決定。
+**波形另外宣告在 `extensions.waveformRendering`**，含 `standard: "none — DICOM PS3.18 does not
+define a rendered representation for waveforms"`。不混在標準行為裡講，是為了讓別人照標準寫的
+客戶端對不上時，查得到這是誰的決定。渲染本體在 [`HD.Ecg`](https://forgejo.hdtech.tw/charlie/HD.Ecg)。
+
+**波形只輸出 PNG。** PDF 在上游目前會把整套 CJK 字型嵌進去——實測 13.9 MB，其中
+13,929,598 bytes 是單一個 `/FontFile2`，真正的圖形內容只有 38 KB。等字型子集化解決再開。
+
+### ⚠️ 部署前提：主機要有 fontconfig 與 CJK 字型
+
+波形繪製走 SkiaSharp，需要系統的 `libfontconfig` 與 `libfreetype`；而**病人姓名要靠 CJK 字型**。
+
+```bash
+# RHEL 9/10
+sudo dnf install -y google-noto-sans-cjk-vf-fonts
+sudo systemctl restart hd-dicomweb      # 字型偵測結果有快取
+```
+
+**這個缺失是完全無聲的。** 少了 CJK 字型時波形照樣畫得出來、HTTP 照樣 200、日誌一句話都不會說
+——標籤會自動退回英文（良性降級），但**病人姓名沒有英文可退**，會變成一排豆腐。而且
+**只有全新環境會踩到**，既有機器裝過就不會再犯。
+
+所以不要只靠這份文件：**`/health` 有 `ecgFontCoverage` 欄位**（`None`／`Latin`／`Cjk`），
+部署後看一眼就知道，而 hdctl 的健檢本來就會打 `/health`。
+
+> 實測：`.199` 初次部署時是 `Latin`——37 個字型、`fc-list :lang=zh-tw` 為 0。
+> 裝了 `google-noto-sans-cjk-vf-fonts`（12 個 CJK 字型）並重啟後變成 `Cjk`，中文標籤回來。
+> 這個差異是靠「本機 266 KB vs 伺服器 282 KB」的 6% 檔案大小差追出來的——
+> 只看「有沒有回 200」會完全錯過。
 
 三種型別對錯配一律回 415 並說明下一步（對 SR 要 jpeg、對影像要 pdf、對 PDF 要縮圖或影格…）。
 **沒有像素的型別問 `/frames` 也要回 415** —— 不擋的話是 500 加空的 body，

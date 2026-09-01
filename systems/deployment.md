@@ -104,6 +104,37 @@ hdctl 現在會比對兩版的 `envFiles`，目標版少了就出聲（只警告
 **推論**：改設定檔之後，光看「既有機器升級沒事」不足以證明包是好的。要嘛靠打包時的檢查，
 要嘛真的做一次全新安裝。
 
+## 元件對主機的相依（不是 .NET 的、hdctl 管不到的）
+
+self-contained 的包解決了「主機有沒有 .NET」，但**沒有解決「主機有沒有那個原生程式庫」**。
+這一類相依 hdctl 檢查不到，而且失敗形態通常很糟。
+
+| 元件 | 需要 | 缺了會怎樣 |
+|---|---|---|
+| `dicomweb` | `libfontconfig`、`libfreetype` | ECG 波形完全畫不出來（`/rendered` 回 415 並說明） |
+| `dicomweb` | **CJK 字型** | **完全無聲**：波形照樣畫、HTTP 200、日誌不吭聲，只有病人姓名變豆腐 |
+
+```bash
+# RHEL 9/10
+sudo dnf install -y google-noto-sans-cjk-vf-fonts
+sudo /usr/local/bin/hdctl restart dicomweb    # 字型偵測有快取
+```
+
+**第二列是重點，它示範了這類問題的形狀：**
+
+- 失敗完全無聲，錯誤訊息、狀態碼、日誌都不會提
+- **只有全新環境會踩到**——既有機器裝過就不會再犯，所以「既有機器升級沒事」證明不了什麼
+- 只有比對才看得見（是靠「本機 266 KB vs 伺服器 282 KB」的 6% 差異追出來的）
+
+跟 [`preserve` 的三個性質](#preserve-的三個性質2026-08-26-一天內全部撞到) 裡「它會遮住壞掉的
+設定檔」是同一個形狀：**既有安裝全正常，只有新醫院會炸。**
+
+**做法：讓元件自己講，不要只寫進文件。** `dicomweb` 的 `/health` 有 `ecgFontCoverage`
+（`None`／`Latin`／`Cjk`）——hdctl 的健檢本來就會打 `/health`，等於自動涵蓋。
+文件會被漏掉，健檢不會。
+
+新元件若有這類原生相依，照這個做：**一個可以從外面看到的狀態欄位**，而不是一行 README。
+
 ## 現有部署現況（統一前）
 - **DicomWeb**：自有 `deploy/install.sh`（.199），**不寫版本檔**（靠 /health）。
 - **傳統 PACS**：舊 `D:\ProgramPublish` 有 install/update/rollback（/home/HD/service + hd_conf.json 集中設定、寫 version.txt、13 服務含舊 web 元件、root 執行）。新版要一般化進 hdctl。
