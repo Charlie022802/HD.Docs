@@ -112,6 +112,31 @@ sudo systemctl restart hd-dicomweb      # 字型偵測結果有快取
 **沒有像素的型別問 `/frames` 也要回 415** —— 不擋的話是 500 加空的 body，
 而 500 在現場會被判斷成「這個檔案壞了」。
 
+### 匿名規則與 rendered 的非影像路徑（alpha.27 修）
+
+**到 alpha.26 為止，rendered 的四條非影像路徑完全沒有套匿名規則。** 而其中三條會把病人資訊送出去：
+
+| 路徑 | 資訊從哪來 | 修法 |
+|---|---|---|
+| ECG | **我們自己畫進圖裡**（姓名／病歷號）| `EcgViewOptions.Anonymize`，真的遮掉 |
+| SR HTML | **我們自己印的表頭**（`SrHtmlRenderer.cs`）| 先把規則套在 dataset 上再渲染 |
+| 封裝 PDF | 原始文件原樣送出 | **改不了** → 403 `anonymisation_not_possible` |
+| 視訊 | 像素燒錄（超音波常見）| 不處理——既有的影像 rendered 本來就這樣，不是這幾條引入的 |
+
+對外的承諾是「所有 WADO 取得＋QIDO 結果自動去識別，client 無法選退」，這三條把那個承諾破掉了。
+發現的過程是去查「能不能開排版參數給客戶端選」，看到 `EcgViewOptions` 有個 `Anonymize` 才回頭問
+「那我們現在有在用嗎」——**答案是沒有**。
+
+**快取鍵也要帶匿名旗標**（`{uid}|ecg|{format}|anon|raw`）。不帶的話兩種請求共用同一格：
+一般金鑰先取過的那份會被匿名金鑰拿到——**那是把可識別資料送給不該看到的人，而且完全無聲**。
+
+封裝 PDF 那條回 403 而不是靜默送出，跟 WADO-URI `anonymize=yes` 沒綁規則時回 403 是同一個原則：
+**寧可拒絕，也不要回可識別資料**。一般金鑰不受影響，照常拿得到。
+
+驗收腳本 `tests/manual/Verify-AnonymisedRendered.ps1`（兩把金鑰對打同一份資料）。
+**SVG 讓 ECG 這條第一次可以自動檢查**——文字是 `<text>` 元素，病歷號在不在 grep 一下就知道；
+PNG 與 PDF 要 OCR 才驗得了，腳本只能存檔讓人看一眼。
+
 ### Keycloak 未設定的站台（alpha.23 修）
 
 `Keycloak__Authority` 留空是**文件宣稱支援**的設定（新醫院還沒自建院內 Keycloak 時，先只收 API Key）。
