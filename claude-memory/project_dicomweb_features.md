@@ -57,3 +57,5 @@ HD.Pacs.DicomWeb 一批強化，2026-07-27 起。與 [[project_dicomweb_impl_spl
 - 5211a9b + 041b884 **已一起部署 .199**（build 20260729-134315；install.sh 首次互動 DB「沿用舊設定」成功、密碼externalize 生效；DELETE 404 + conformance delete/rateLimit 已驗）。DB 三個增量欄由使用者在 pgAdmin 手動下(AE_TITLE/ANONYMISE_NAME/IP_WHITELIST，對應 db/migrations 001-003)。
 - 剩未做：HTTPS 上線（ops，deploy/https-setup.md）、P2 角色細化、P5 Keycloak；install.sh 目前不自動跑 DB migration（部署與加欄解耦，加欄用 db/migrations/apply.sh 或手動 SQL）。
 - 部署走 `deploy/install.sh`（framework-dependent tgz；本機 `dotnet publish -r linux-x64 --no-self-contained` 打包 `hd-pacs-linux.tgz`，gitignore）。**下次部署 install.sh 有改（互動問 DB），要一起 scp**；首次會問「沿用舊連線 [Y]」。
+
+**視訊 rendered（alpha.24，2026-09-01）：** `Accept: video/mp4`（或 video/mpeg／video/H265）直接回封裝的串流，**這是標準行為**（PS3.18 表 8.7.4-1 的 Video 類），跟波形不同。教訓：**transfer syntax 不等於容器格式**——同樣是 `.102`（MPEG-4 AVC），有的產生端封 MP4（`ftyp` box）、有的封 H.264 Annex-B 裸流，兩者都合法，但只有前者瀏覽器播得動；所以送出前看實際位元組（`DetectContainer`），要 mp4 卻是裸流就 415，不做 remux（會多背 ffmpeg）。手上那份 `D: 038b2.dcm` 是 MP4 容器，實測 STOW 進去再 `video/mp4` 取回 **sha256 完全相同**。順帶：視訊 UID 清單原本服務層與 Domain 各一份（只有服務層那份認得 Fragmentable 的 `.1` 變體），已合併；WADO-URI 的 406 原本 body 全空，現在帶 `supportedMediaTypes`。
