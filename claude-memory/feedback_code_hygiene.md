@@ -45,3 +45,4 @@ metadata:
 新值加得越乾淨（值域集中、CHECK 有擋），越容易忘記那些**沒有型別保護的地方**：
 字串訊息、`switch` 的 default、前端的狀態文字對照。加值之後搜一遍舊值出現的所有位置。
 
+**`curl … | python` 在這台會用 cp950 解 stdin。** 2026-09-01 因此差點誤報一個不存在的 bug：UTF-8 的 `§`（C2 A7）被當 Big5 解成「禮」(U+79AE)，剛好落進我用來抓中文的碼點範圍，於是「英文 API 文件殘留中文」——實際上 DLL 裡是對的。**驗證工具本身的編碼也要當成受測對象。**管線讀 JSON 一律先 `sys.stdin=io.TextIOWrapper(sys.stdin.buffer,encoding='utf-8')`；另外 Windows 的 python 吃不了 Git Bash 的 `/c/...`、`/d/...` 路徑（要寫 `C:/...`），這天也踩了兩次。
