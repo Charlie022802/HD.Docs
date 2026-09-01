@@ -59,3 +59,5 @@ HD.Pacs.DicomWeb 一批強化，2026-07-27 起。與 [[project_dicomweb_impl_spl
 - 部署走 `deploy/install.sh`（framework-dependent tgz；本機 `dotnet publish -r linux-x64 --no-self-contained` 打包 `hd-pacs-linux.tgz`，gitignore）。**下次部署 install.sh 有改（互動問 DB），要一起 scp**；首次會問「沿用舊連線 [Y]」。
 
 **視訊 rendered（alpha.24，2026-09-01）：** `Accept: video/mp4`（或 video/mpeg／video/H265）直接回封裝的串流，**這是標準行為**（PS3.18 表 8.7.4-1 的 Video 類），跟波形不同。教訓：**transfer syntax 不等於容器格式**——同樣是 `.102`（MPEG-4 AVC），有的產生端封 MP4（`ftyp` box）、有的封 H.264 Annex-B 裸流，兩者都合法，但只有前者瀏覽器播得動；所以送出前看實際位元組（`DetectContainer`），要 mp4 卻是裸流就 415，不做 remux（會多背 ffmpeg）。手上那份 `D: 038b2.dcm` 是 MP4 容器，實測 STOW 進去再 `video/mp4` 取回 **sha256 完全相同**。順帶：視訊 UID 清單原本服務層與 Domain 各一份（只有服務層那份認得 Fragmentable 的 `.1` 變體），已合併；WADO-URI 的 406 原本 body 全空，現在帶 `supportedMediaTypes`。
+
+**波形加開 PDF（alpha.25，2026-09-01）：** `Accept: application/pdf` 出向量 PDF（實測 72 KB，比 PNG 的 291 KB 還小，`/FontFile` 零個）。當初關掉的理由（嵌整套 CJK 字型 13.9 MB）已被「文字轉向量路徑」解掉。**代價：PDF 文字不能選取或搜尋**（寫在 conformance 的 `pdfNote`）。兩個實作重點：①**波形的分流要排在封裝 PDF 前面**——兩者都吃 `application/pdf` 但意思不同（取出 vs 畫出來），順序反了會回「此 instance 不是封裝 PDF」，訊息正確卻幫不上忙；②快取鍵要帶型別（原本 `{uid}|ecgpng`），否則先 PNG 後 PDF 會拿到 PNG 位元組配 PDF 的 Content-Type——200 但打不開。
