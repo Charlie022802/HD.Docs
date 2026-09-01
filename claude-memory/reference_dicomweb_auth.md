@@ -37,3 +37,11 @@ HD.Pacs.DicomWeb 認證架構(Program.cs)。三種 scheme:
 註:表為「機制」層級;實際存取還要看該 JWT/金鑰有無對應 **scope**(如 dicomweb.read)。
 
 **`anonymise` claim 只有 API Key 認證會鑄**(`ApiKeyAuthenticationHandler` ~L156,對應 HD_API_KEY.ANONYMISE_NAME);JWT(`JwtIssuer`)不鑄——因匿名規則綁金鑰。故取回時去識別=金鑰驅動,JWT 醫生取原始、API Key(SharedServer)取匿名。相關:[[project_dicomweb_features]]。
+
+**`Keycloak:Authority` 留空 != 「只收 API Key 照常運作」（alpha.23 前）。** appsettings 註解那樣寫了很久，
+但 OIDC handler 是 `IAuthenticationRequestHandler`，`AuthenticationMiddleware` **每個請求**都會建它一次，
+空字串過不了 options 驗證 -> **連 `/health` 都 500**；JWT 那邊同病（`PostConfigure` 丟 must-use-HTTPS，
+帶保護的端點回 500 而不是 401）。alpha.23 改成兩個 scheme 都只在 Authority 有值時註冊，
+沒有 SSO 時 MultiScheme 一律轉 API Key、`/admin/auth/login` 回 503。
+**既有站台都有設，所以只有全新醫院會踩到**，樣子是「服務 active、hdctl 說安裝成功，然後每支 API 都 500」。
+同一個原因讓**整包整合測試（34 條）從 Keycloak 切換後就全紅**——沒人跑，所以沒人看到它在喊。

@@ -42,6 +42,7 @@
 - [DicomWeb 三強化](project_dicomweb_features.md) — 稽核緩衝+Admin登入+WADO匿名+授權收斂 全DONE+部署.199(commit 009b754)。金鑰管理改in-process(Blazor電路無HttpContext)、admin.api_keys改綁dicomWeb.manageApiKeys、AE下拉排AE_REF=1+上傳必填、重名擋、複製鈕HTTP fallback
 - [原始檔不可變+出口疊合](project_immutable_original_coerce.md) — 目標架構決策:進檔唯讀不可變、校正只寫DB、出口coerce疊RC_OBJECT.DATASET(UID雙保險父表);保留STUDY_CLOSE的update_study_info reconcile、砍C#改檔;WADO先做試點,其他出口後補
 - [DicomWeb 部署](project_dicomweb_deploy.md) — **.199 已全 hdctl 管理(2026-08-10)**:更新=hdpack+hdctl install、退版=rollback;兩 unit 模組正本在 manifest;HTTPS=nginx 443(hddicomweb);install.sh 退役留全新環境
+- [DicomWeb API 文件](reference_dicomweb_api_docs.md) — 文件三個表面(Scalar 中文正本/英文查表/README+HD.Docs);**英文那份以中文 summary 當 key,只改 description 會「命中但過時」**(比查不到更難發現);測試只擋得住「漏補」
 - [DicomWeb 認證對照](reference_dicomweb_auth.md) — **已切 Keycloak(.199)**:JWT=Keycloak(查HD_USER補scopes,無對應401)、dev-token/金鑰管理端點退役;MultiScheme 分派不變;anonymise claim 只 API Key 鑄
 - [主PACS 疊合+日誌](project_main_pacs_coerce_logging.md) — A0~A3 全完成;**九支全接集中日誌**(.191);接上即揪出兩蟲並修(DicomClient 工廠/JSON 容錯+單筆隔離)+watchdog 靜音;.191 更新慣例=tgz+update-services.sh
 - [主PACS 部署](project_main_pacs_deploy.md) — hdctl 統一框架;**.191 現在 pacs `2.0.6`(2026-08-17 佈兩次)**;打包=`bash deploy/pack-pacs.sh /d/HD-Release/packages`;`sudo` 要用 `/usr/local/bin/hdctl` 全路徑;**.191 沒有 cd-viewer-win → containViewer=true 會失敗**;階段三=.234 舊換新
