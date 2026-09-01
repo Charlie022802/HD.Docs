@@ -35,3 +35,5 @@ appsettings 被帶過去,但 **unit 是照目標版 manifest 重寫的**、alpha
 要嘛靠打包時的檢查,要嘛真的做一次全新安裝。
 
 相關:[[project_hdctl_hospital_host]]、[[project_main_pacs_deploy]]、[[project_hd_admin_console]]。
+
+**第四個性質(2026-09-01 修於 0.2.8):同版 `--force` 重佈會把設定退回上一版。** `--force` 先 `rmtree` 整個 release 目錄——連正在跑的設定檔一起——而 preserve 的來源是「上一個**不同**版本」(current 就是同一版),所以操作員在這一版改過的設定被悄悄換掉,訊息還理直氣壯地說「保留設定（自 <上一版>）」。**這條路徑正是「重佈一次看看」會走的,而人會去重佈多半因為剛改完設定**——最危險的時刻就是最常觸發的時刻。現在會先把 preserve 清單搬到 `<rel_dir>.preserve`,訊息改印「自 同版現行安裝」。
