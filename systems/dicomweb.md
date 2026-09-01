@@ -1,4 +1,4 @@
-# DicomWeb
+﻿# DicomWeb
 
 > 端點完整清單（含參數/認證/退役對照）：[dicomweb-endpoints.md](dicomweb-endpoints.md)（HD.Pacs.DicomWeb）
 
@@ -48,7 +48,7 @@ Single Frame Image／Multi-frame Image／Video／**Text**。
 | Encapsulated PDF | `application/pdf` | Text 類，標準行為 | ✅ `alpha.17` |
 | Structured Report | `text/html` | Text 類，標準行為 | ✅ `alpha.18` |
 | 視訊（MPEG-2／MPEG-4 AVC／HEVC） | `video/mpeg`／`video/mp4`／`video/H265` | Video 類，標準行為 | ✅ `alpha.24` |
-| Waveform（ECG） | `image/png` | **標準沒有定義**，屬我們的擴充 | ✅ `alpha.20` |
+| Waveform（ECG） | `image/png`（看）／`application/pdf`（印） | **標準沒有定義**，屬我們的擴充 | ✅ `alpha.20`／PDF `alpha.25` |
 
 **PDF 不是渲染，是取出**——它本來就完整躺在 `EncapsulatedDocument` 欄位裡。
 **SR 才是真正的渲染**，而且做壞比不做糟，理由見 `SrHtmlRenderer` 的類別註解
@@ -58,8 +58,16 @@ Single Frame Image／Multi-frame Image／Video／**Text**。
 define a rendered representation for waveforms"`。不混在標準行為裡講，是為了讓別人照標準寫的
 客戶端對不上時，查得到這是誰的決定。渲染本體在 [`HD.Ecg`](https://forgejo.hdtech.tw/charlie/HD.Ecg)。
 
-**波形只輸出 PNG。** PDF 在上游目前會把整套 CJK 字型嵌進去——實測 13.9 MB，其中
-13,929,598 bytes 是單一個 `/FontFile2`，真正的圖形內容只有 38 KB。等字型子集化解決再開。
+**波形 PNG 與 PDF 都有（PDF 於 alpha.25 開通）。** PDF 曾經因為體積關掉：上游會把整套 CJK 字型嵌進去——實測 13.9 MB，其中
+13,929,598 bytes 是單一個 `/FontFile2`，真正的圖形內容只有 38 KB。
+解法不是子集化（SkiaSharp 不做），是**把文字轉成向量路徑**：PDF 裡沒有任何字型，
+但仍然是向量——96 KB，145 倍小。而向量正是 ECG 要 PDF 的唯一理由：心臟科醫師拿卡尺量
+紙本上的間期，25 mm/s 必須是紙上真實的 25 毫米，PNG 列印出來的尺寸不保證。
+**代價：PDF 裡的文字不能選取或搜尋。** PNG 不走這條（點陣不需要，小字級下字型渲染比路徑填色清楚）。
+
+分流順序上，**波形要排在封裝 PDF 前面**：兩者都吃 `application/pdf`，但意思完全不同
+（封裝 PDF 是「把躺在那裡的 PDF 取出來」，波形是「把訊號畫成 PDF」）。順序反了的話，
+對波形要 `application/pdf` 會得到「此 instance 不是封裝 PDF」——訊息正確但完全幫不上忙。
 
 ### ⚠️ 部署前提：主機要有 fontconfig 與 CJK 字型
 
