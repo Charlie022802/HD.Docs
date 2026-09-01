@@ -44,8 +44,9 @@
 | `ls /usr/local/bin/` | 有 `hdctl` | **空的** |
 | `ls /home/HD/service/` | 有 `hd-viewerapi` | 沒有，全是舊系統服務 |
 
-**最可靠的是「內外交叉比對」**：從自己機器 `curl http://<host>:5100/healthz`，
-再在對端 `curl http://127.0.0.1:5100/healthz`，**兩邊版本字串要逐字相同**。
+**最可靠的是「內外交叉比對」**：從自己機器 `curl http://<host>:5100/health`，
+再在對端 `curl http://127.0.0.1:5100/health`，**兩邊版本字串要逐字相同**。
+（viewerapi 到 alpha.5 為止只有 `/healthz`；alpha.6 起兩條都通，`/health` 與其他三支一致。）
 服務版本騙不了人，而 IP、主機名、machine-id 都會。
 
 Windows 端可先看走哪條通道：`Find-NetRoute -RemoteIPAddress <ip>` ——
