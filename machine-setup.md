@@ -27,15 +27,15 @@ New-Item -ItemType Directory -Force D:\Dev\HyperDigital
 
 ---
 
-## 2. clone 11 個 repo
+## 2. clone 12 個 repo
 
-**11 個都要 clone，不能只挑要用的** —— 專案之間有跨 repo 參考（例如
+**12 個都要 clone，不能只挑要用的** —— 專案之間有跨 repo 參考（例如
 `HD.Net10\HD` 參考 `HD.Shared\src\HD.Shared.Logging`），少一個就 build 不起來。
 
-名稱一致的 9 個：
+名稱一致的 10 個：
 
 ```powershell
-Set-Location D:\Dev\HyperDigital; foreach ($r in 'HD.AdminConsole','HD.Animal','HD.DicomImageViewer','HD.Export','HD.LoggingPlatform','HD.Net10','HD.Pacs.DicomWeb','HD.Shared','hdctl') { git clone "https://forgejo.hdtech.tw/charlie/$r.git" }
+Set-Location D:\Dev\HyperDigital; foreach ($r in 'HD.AdminConsole','HD.Animal','HD.DicomImageViewer','HD.Ecg','HD.Export','HD.LoggingPlatform','HD.Net10','HD.Pacs.DicomWeb','HD.Shared','hdctl') { git clone "https://forgejo.hdtech.tw/charlie/$r.git" }
 ```
 
 **目錄名與 repo 名不同的 2 個**，最後的目錄名參數不能省，否則資料夾會叫
@@ -52,7 +52,7 @@ Set-Location D:\Dev\HyperDigital; git clone https://forgejo.hdtech.tw/charlie/HD
 補上 GitHub 鏡像 remote：
 
 ```powershell
-Set-Location D:\Dev\HyperDigital; foreach ($d in 'HD.AdminConsole','HD.Animal','HD.DicomImageViewer','HD.Export','HD.LoggingPlatform','HD.Net10','HD.Pacs.DicomWeb','HD.Shared','hdctl') { git -C $d remote add github "https://github.com/Charlie022802/$d.git" }
+Set-Location D:\Dev\HyperDigital; foreach ($d in 'HD.AdminConsole','HD.Animal','HD.DicomImageViewer','HD.Ecg','HD.Export','HD.LoggingPlatform','HD.Net10','HD.Pacs.DicomWeb','HD.Shared','hdctl') { git -C $d remote add github "https://github.com/Charlie022802/$d.git" }
 ```
 
 ```powershell

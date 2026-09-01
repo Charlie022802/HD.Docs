@@ -191,7 +191,9 @@
 - **未決**：`HD_USER_CONFIG` 的設定內容搬去哪（跟著看片端重做走；**個人偏好不要進 Keycloak attributes**）。
 
 ### REQ-004　DicomWeb 縮圖效能：目前每次即時渲染、無快取
-- **狀態**：提出（2026-08-03，觀察）
+- **狀態**：**記憶體快取已完成並上線**（`RenderedImageCache`，128 MB / LRU / 30 分，key=`sopUid|frame|format|maxDim`、version=`DATE_TIME_MODIFIED`；commit `9dfa1ff`，2026-08-06 部署 .199）。下方「現況」寫於 2026-08-03 提出當時，描述的是**那時**沒有快取的狀態，保留當紀錄。
+  **還沒做的是預生成那半**：現在仍是「第一次請求即時渲染、之後才有快取」，縮圖牆的第一次載入照樣大量解碼。
+  （2026-09-01 更正：這條與 todo.md 的完成紀錄互相矛盾了一個月。）
 - **系統**：DicomWeb（HD.Pacs.DicomWeb）
 - **現況**：WADO thumbnail（`HdPacsWadoService.GetThumbnailAsync` → `RenderFrame`）**每次請求都從 DICOM 檔即時解碼→渲染→縮放→編 JPEG**，沒有快取（`CoercedInstanceCache` 只用於取整份 instance，不含 thumbnail/rendered），也沒讀現成 .jpg。縮圖牆（一次幾十上百張）會大量重複解碼，壓縮影像尤其吃 CPU/NAS I/O。
 - **優化選項**（待評估）：

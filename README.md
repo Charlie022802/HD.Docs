@@ -19,7 +19,7 @@
 
 ## 環境與發布
 - [environments.md](environments.md) — 主機盤點（含 .191 測試機）+ 發布資料位置 `D:\HD-Release\` + 舊換新討論。
-- [machine-setup.md](machine-setup.md) — **換一台機器怎麼建構這個專案**：路徑要一致、clone 11 個 repo、
+- [machine-setup.md](machine-setup.md) — **換一台機器怎麼建構這個專案**：路徑要一致、clone 12 個 repo、
   git 帶不過去的 7 個設定檔、Claude 記憶的 junction 接法、兩台之間的同步紀律。
 
 ## Claude Code 的記憶
@@ -61,6 +61,7 @@ repo 名稱與目錄名相同，**唯一的例外是 `Database\` 目錄對應的
 | 共用日誌套件（HD.Shared.Logging）| [systems/shared-logging.md](systems/shared-logging.md) | 套件完成；各產品接入中 |
 | LoggingPlatform（HD.LoggingPlatform）| [systems/logging-platform.md](systems/logging-platform.md) | 生產 .195 |
 | 統一部署框架（hdctl）| [systems/deployment.md](systems/deployment.md) | 階段二完成：.191 pacs/export/adminconsole 全遷入（hdctl 0.2.1）|
+| ECG 波形繪製（HD.Ecg）| [systems/hd-ecg.md](systems/hd-ecg.md) | 函式庫，非服務；DicomWeb `/rendered` 的波形那一類。PNG／PDF／SVG。**Linux 要裝 CJK 字型，缺了是無聲的失敗** |
 | 多語系（i18n）| [i18n-plan.md](i18n-plan.md) | 已定案規劃（resx+IStringLocalizer），P0 骨架待做 |
 | 多院區主機（院區歸屬） | [multi-site-design.md](multi-site-design.md) | 設計完備待開工：SITE_CODE 進檔蓋章＋出口過濾＋RLS。一台主機承載多院區，涵蓋「多家動物醫院共用總機」與「一家醫院的多分院」兩種形狀 |
 | 媒體匯出／燒錄 重新設計 | [media-export-redesign.md](media-export-redesign.md) | 設計中：新表＋新 proc（UID 三層級選擇、佇列併發、拆開 kiosk/rimage 專屬欄位）|
