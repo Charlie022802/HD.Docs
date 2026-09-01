@@ -48,7 +48,7 @@ Single Frame Image／Multi-frame Image／Video／**Text**。
 | Encapsulated PDF | `application/pdf` | Text 類，標準行為 | ✅ `alpha.17` |
 | Structured Report | `text/html` | Text 類，標準行為 | ✅ `alpha.18` |
 | 視訊（MPEG-2／MPEG-4 AVC／HEVC） | `video/mpeg`／`video/mp4`／`video/H265` | Video 類，標準行為 | ✅ `alpha.24` |
-| Waveform（ECG） | `image/png`（看）／`application/pdf`（印） | **標準沒有定義**，屬我們的擴充 | ✅ `alpha.20`／PDF `alpha.25` |
+| Waveform（ECG） | `image/png`（看）／`application/pdf`（印）／`image/svg+xml`（嵌） | **標準沒有定義**，屬我們的擴充 | ✅ `alpha.20`／PDF `alpha.25`／SVG `alpha.26` |
 
 **PDF 不是渲染，是取出**——它本來就完整躺在 `EncapsulatedDocument` 欄位裡。
 **SR 才是真正的渲染**，而且做壞比不做糟，理由見 `SrHtmlRenderer` 的類別註解
@@ -68,6 +68,15 @@ define a rendered representation for waveforms"`。不混在標準行為裡講�
 分流順序上，**波形要排在封裝 PDF 前面**：兩者都吃 `application/pdf`，但意思完全不同
 （封裝 PDF 是「把躺在那裡的 PDF 取出來」，波形是「把訊號畫成 PDF」）。順序反了的話，
 對波形要 `application/pdf` 會得到「此 instance 不是封裝 PDF」——訊息正確但完全幫不上忙。
+
+**SVG（alpha.26，老闆要求）是三種輸出裡唯一不依賴伺服器字型的。** 它的文字是 `<text>` 元素，
+由瀏覽器用自己的字型畫——「病人姓名變豆腐」那個無聲的失敗在這條路上不存在（改由客戶端負責，
+而客戶端幾乎都有 CJK 字型）。文字也可以選取與搜尋（PDF 那條是向量路徑，不行），
+前端還可以直接進 DOM 套 CSS。我們產出的 SVG 不含 `script` 與 `foreignObject`。
+
+順帶修掉上游一個坑：`RenderSvg` 失敗時回的是**一張寫著錯誤訊息的 SVG**——對人友善，
+對呼叫端是災難，因為它跟成功長得一模一樣（同樣是合法的 SVG），服務層照樣回 HTTP 200。
+現在多一個 `RenderSvg(source, options, out error)` 多載，失敗回 null，DicomWeb 走那條。
 
 ### ⚠️ 部署前提：主機要有 fontconfig 與 CJK 字型
 
