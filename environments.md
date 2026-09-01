@@ -11,6 +11,35 @@
 | **192.168.68.222** | RHEL/Alma（SELinux Enforcing）| Animal Proxy :2020/3320 + WebController :8080 | 生產 |
 | **192.168.68.191** | RHEL/Alma 10（測試機）| **新版 HDPACS 測試目標** + 管理主控台 :5200 | 已裝環境包 + 舊版 HDPACS(ProgramPublish)；**自己本機 DB**（可全測）；hd-admin-console 在 /opt |
 
+## hdctl 實際安裝清單（2026-09-01 以 `hdctl list` 實測）
+
+三台的 `hdctl` 都是 **0.2.7**，語系都是 **`zh_TW.UTF-8`**（這一點有意義：0.2.6 的 SELinux
+判斷拿英文字串比對 semanage 的輸出，中文語系會誤判成失敗並印出兩行假警告，0.2.7 修掉）。
+
+**192.168.68.191**（`hdpacs191`，hdadmin）
+| 元件 | current | units |
+|---|---|---|
+| `hd-adminconsole` | `0.1.0-alpha.31+20260831203427` | `hd-admin-console` |
+| `hd-pacs` | `2.0.13+20260825100752` | `hd-pacs`、`hd-worklist-server`、`hd-callback`、`hd-dicom-transmit`、`hd-media-package`、`hd-workflow-manager`、`hd-dicom-service-manager`（7 支） |
+
+**192.168.68.199**（`newdicomweb`，hdadmin）
+| 元件 | current | units |
+|---|---|---|
+| `hd-dicomweb` | `1.0.0-alpha.23+20260901154626` | `hd-pacs-dicomweb`、`hd-pacs-dicomweb-ups` |
+| `hd-export` | `0.1.0-alpha.18+20260827171839` | `hd-export` |
+| `hd-viewerapi` | `0.1.0-alpha.6+20260901155711` | `hd-viewer-api` |
+
+**192.168.68.163**（`STJOHO_68_163`，**root**——見主機配置表；注意 VPN 同 IP 兩台機器）
+| 元件 | current | units |
+|---|---|---|
+| `hd-viewerapi` | `0.1.0-alpha.6+20260901155711` | `hd-viewer-api` |
+
+每台都保留最近 3 版（hdctl 自動 prune），所以上面每個元件底下都還有兩版可以 `hdctl rollback`。
+換 hdctl 當下留了 `/usr/local/bin/hdctl.0.2.6.bak`——換掉的是**退版工具本身**，需要一條不依賴它的退路。
+
+> 這張表會過時。要現況一律 `hdctl list`，別信這裡的版本號；留著它是為了回答
+> 「**哪台上面有什麼**」——那個問題不常變，而且出事時最先要問。
+
 > **測試策略**：新版 HDPACS 先在 **.191** 做「舊→新升級」測試（本機 DB，不影響任何正式資料）；流程跑通後再套 .234（那時處理 hdadmin 建帳號、舊 CentOS/runtime）。
 
 ## 發布資料位置：`D:\HD-Release\`（新的統一位置）
