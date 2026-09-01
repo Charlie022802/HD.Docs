@@ -47,6 +47,7 @@ Single Frame Image／Multi-frame Image／Video／**Text**。
 |---|---|---|---|
 | Encapsulated PDF | `application/pdf` | Text 類，標準行為 | ✅ `alpha.17` |
 | Structured Report | `text/html` | Text 類，標準行為 | ✅ `alpha.18` |
+| 視訊（MPEG-2／MPEG-4 AVC／HEVC） | `video/mpeg`／`video/mp4`／`video/H265` | Video 類，標準行為 | ✅ `alpha.24` |
 | Waveform（ECG） | `image/png` | **標準沒有定義**，屬我們的擴充 | ✅ `alpha.20` |
 
 **PDF 不是渲染，是取出**——它本來就完整躺在 `EncapsulatedDocument` 欄位裡。
@@ -82,7 +83,15 @@ sudo systemctl restart hd-dicomweb      # 字型偵測結果有快取
 > 這個差異是靠「本機 266 KB vs 伺服器 282 KB」的 6% 檔案大小差追出來的——
 > 只看「有沒有回 200」會完全錯過。
 
-三種型別對錯配一律回 415 並說明下一步（對 SR 要 jpeg、對影像要 pdf、對 PDF 要縮圖或影格…）。
+四種型別對錯配一律回 415 並說明下一步（對 SR 要 jpeg、對影像要 pdf、對 PDF 要縮圖或影格…）。
+
+**視訊多一道容器檢查（alpha.24）。** transfer syntax 說的是「怎麼編碼」，沒說「裝在什麼容器裡」——
+同樣是 MPEG-4 AVC（`.102`），有的產生端封的是 MP4（開頭有 `ftyp` box），有的封的是 H.264 Annex-B
+裸位元流，兩者都合法，但**只有前者瀏覽器的 `<video>` 播得動**。所以送出前會看實際位元組：
+要 `video/mp4` 卻是裸流就回 415 並要對方取整份 DICOM，不做 remux（那要背 ffmpeg，是部署前提，
+等真的遇到再說）。不檢查的話得到的是「HTTP 200、檔案有大小、就是不會動」——比明確的錯誤糟得多。
+實測手上那份 `.102` 的檔案是 MP4 容器（`00 00 00 20 66 74 79 70 69 73 6f 6d`），可以直送。
+
 **沒有像素的型別問 `/frames` 也要回 415** —— 不擋的話是 500 加空的 body，
 而 500 在現場會被判斷成「這個檔案壞了」。
 
