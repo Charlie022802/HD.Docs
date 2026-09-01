@@ -86,6 +86,54 @@ sudo systemctl restart hd-dicomweb      # 字型偵測結果有快取
 **沒有像素的型別問 `/frames` 也要回 415** —— 不擋的話是 500 加空的 body，
 而 500 在現場會被判斷成「這個檔案壞了」。
 
+### Keycloak 未設定的站台（alpha.23 修）
+
+`Keycloak__Authority` 留空是**文件宣稱支援**的設定（新醫院還沒自建院內 Keycloak 時，先只收 API Key）。
+實際上到 alpha.22 為止它會讓**整台服務每個請求都 500，包括 `/health`**：
+OIDC handler 是 `IAuthenticationRequestHandler`（要攔回跳路徑），`AuthenticationMiddleware`
+每個請求都會把它建出來一次，而空字串過不了 options 驗證。JWT 那邊是同一個病，
+空 Authority 在 `PostConfigure` 就丟「must use HTTPS」，讓帶保護的端點回 500 而不是 401。
+
+現在兩個 scheme 都只在 Authority 有值時才註冊；沒有 SSO 時 `MultiScheme` 一律轉給 API Key，
+`/admin/auth/login` 回 503 並說明設定檔位置（而不是 Challenge 一個不存在的 scheme）。
+
+**既有站台全都有設 Authority，所以這個坑只有全新醫院會踩到**，
+而且它踩到的樣子是「服務 active、hdctl 說安裝成功，然後每一支 API 都 500」。
+順帶一提，整包整合測試（34 條）從 Keycloak 切換後就是全紅的，正是同一個原因——
+沒人跑它，所以沒人看到它在喊。
+
+### 客戶端怎麼知道「這份 DICOM 可以轉成什麼」（alpha.22）
+
+**標準沒有這個機制。** 沒有 `OPTIONS`、沒有回應標頭、QIDO 也沒有這個欄位——
+PS3.18 假設客戶端自己認得 SOP Class。所以我們補了兩條，一條事先查、一條試了就知道。
+
+**① `/dicomweb/conformance` 的 `renderedMediaTypes`（機器可讀）**
+
+原本三種型別的宣告方式不一致：波形（唯一的擴充）有 `mediaTypes` 與 `sopClasses` 陣列，
+而封裝 PDF 與 SR 這兩個**標準行為**只寫在 WADO-RS 的 note 字串裡——一句英文散文，程式剖析不了。
+那是因為做波形時特地想過「別人怎麼知道這是擴充」，做前兩個時沒想到這一層。
+現在四類（image／document／report／waveform）都是同一種形狀，各帶 `mediaTypes`、`standard`，
+以及 `sopClasses` 或 `sopClassPrefix`；拿 metadata 的 `(0008,0016)` 一比即可。
+
+**② 415 回應的 `supportedMediaTypes`（RFC 9110 對 406 本來就這樣要求）**
+
+```json
+{
+  "title": "Instance not renderable in the requested media type",
+  "status": 415,
+  "detail": "此為 Structured Report，沒有影像資料，無法輸出靜圖。請改以 Accept: text/html 取回報告。",
+  "supportedMediaTypes": ["text/html"]
+}
+```
+
+**這條比較重要**，因為它是唯一「一定會被走到」的發現路徑——只要有人 `Accept` 寫錯就會遇到。
+`detail` 人看得懂，但程式得剖析字串。錯誤本身就該是答案，而且要機器讀得懂。
+
+順帶修掉的假資訊：三處 415 的稽核 `reason` 一律寫著 `video_not_renderable`（視訊那一輪留下的，
+現在同一條路徑要服務四種型別），WADO-URI 那條連 `title` 都還寫著 `Video instance…`
+且完全沒帶清單。**稽核裡的錯誤分類寫錯，比沒有分類更糟**——查的人會被帶往錯的方向。
+現在一律 `media_type_not_supported`，兩條路（WADO-RS／WADO-URI）共用同一個 helper。
+
 ### WebViewer 要怎麼顯示
 
 **限制先講**：WADO 端點要帶憑證標頭，而 `<img src>`／`<iframe src>` 這類標籤**沒辦法帶標頭**。

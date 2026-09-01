@@ -1,6 +1,6 @@
 ---
 name: project_dicomweb_impl_split
-description: "HD.Pacs.DicomWeb 有兩套 QIDO/WADO/STOW 實作;生產(.199)用 Infrastructure 的 HdPacs* 版,不是 Application 的 EF 版"
+description: "HD.Pacs.DicomWeb 的 QIDO/WADO/STOW 實作只有一份(Infrastructure 的 HdPacs*);Application 的 EF 版 2026-09-01 已刪除。含 transfer syntax/QIDO 多值/索引等實作細節"
 metadata: 
   node_type: memory
   type: reference
@@ -8,11 +8,20 @@ metadata:
   modified: 2026-08-02T17:18:48.146Z
 ---
 
-**踩過的坑:改對實作。** HD.Pacs.DicomWeb 每個服務有兩套實作:
-- Application 層 EF Core 版:`QidoService` / `WadoService`(查 EF `Instance` 等實體)。
-- Infrastructure 層 Dapper 版:`HdPacsQidoService` / `HdPacsWadoService` / `HdPacsStowService`(查舊 HDPACS `RC_STUDY`/`RC_SERIES`/`RC_OBJECT`)。
+**⚠️ 雙軌已在 2026-09-01 結束:Application 那三份 EF 版全刪了(928 行)。** 現在只有一份實作:
+Infrastructure 的 `HdPacsQidoService` / `HdPacsWadoService` / `HdPacsStowService`(Dapper 打 `RC_*`)。
 
-`Infrastructure/ServiceCollectionExtensions.cs` **覆蓋** DI,把 IQidoService/IWadoService/IStowService 全綁到 HdPacs* 版。**生產(.199,接真 HDPACS DB 192.168.68.234)跑的是 HdPacs* 版** —— 改生產行為要改這些,別只改 EF 版(會變成改到沒被用的路徑)。
+**為什麼會有兩份、為什麼是陷阱**(值得記,因為它咬過人):專案照 Application/Infrastructure 分層開,
+Application 那份對著自己的 EF 模型寫;但生產的 DB 是**既有的 HDPACS schema**、不是那個 EF 模型,
+所以後來才有 Infrastructure 版,舊的沒刪。於是同一個介面兩個註冊,**誰贏完全由 `Program.cs` 裡
+`AddDicomWebApplication()` 與 `AddDicomWebInfrastructure()` 的先後順序決定**——後註冊的贏,
+而所有端點注入的都是單數 `IWadoService`(沒有任何地方要 `IEnumerable`)。也就是 Application 那三份
+**從來沒有被建構過**,測試也沒有任何原始碼碰過它們。
+
+**它看起來完全是活的**:實作同一個介面、有一樣的視訊短路、有一樣的中文註解。
+**而且已經害人做過白工**——視訊短路兩邊都有,代表有人特地把修正補進那份永遠不會執行的檔案。
+我自己也差點成為下一個:要加封裝 PDF 支援時,一度打算「兩邊都改以免落差」,而那個落差不存在。
+刪除的來由寫在 `Application/ServiceCollectionExtensions.cs` 的註冊點,免得有人「補回來」。
 
 **Transfer syntax / MPEG4 判斷(已完成):** HDPACS `RC_OBJECT` 沒有 transfer syntax 欄位;`DATASET` jsonb 也不含(它是 `ConvertDicomToJson(dataset)`,group 0002 File Meta 不在 dataset)。真值只在 NAS 原始檔的 file-meta。作法:
 - STOW(`HdPacsStowService`)入庫時把 file-meta 的 transfer syntax 以 `AvailableTransferSyntaxUID (0008,3002)` 併入 `DATASET`(只影響新資料)。
@@ -20,7 +29,14 @@ metadata:
 - WADO metadata **不做** fallback(標準上 transfer syntax 不屬 metadata;查能力走 QIDO 的 0008,3002)。
 - MPEG4 = transfer syntax `.102`–`.106`;`Domain/DicomTransferSyntaxes`(IsVideo/IsMpeg4)EF 路徑用,TestClient 內嵌一份。
 
-**WADO 視訊防呆(其實生產本來就有):** 生產 `HdPacsWadoService` 已內建 `IsVideoTransferSyntax` + frames/rendered 對視訊丟 `NotSupportedException` → 端點回 415。EF `WadoService` 的早期短路是另一條(未用)路徑。thumbnail 端點原本錯回 500,已修為 415。
+**WADO 視訊防呆:** `HdPacsWadoService` 內建 `IsVideoTransferSyntax`,frames/rendered/thumbnail 對視訊丟 `NotSupportedException` → 端點回 415。
+
+**WADO 三種非影像型別的 rendered(2026-09-01 全部完成,見 docs/systems/dicomweb.md):**
+`alpha.17` 封裝 PDF(`application/pdf`,PS3.18 表 8.7.4-1 的 Text 類,**不是渲染是取出**)、
+`alpha.18` Structured Report(`text/html`,同 Text 類)、`alpha.20` ECG 波形(`image/png`,
+**標準未定義、宣告在 `extensions.waveformRendering`**,渲染本體在新 repo [[project_hd_ecg]])。
+`alpha.19` 補掉一個缺口:**沒有像素的型別問 `/frames` 原本回 500 加空 body**,
+而 500 在現場會被判斷成「檔案壞了」。`alpha.21` 在 `/health` 加 `ecgFontCoverage`。
 
 **QIDO ModalitiesInStudy (0008,0061) 多值(已完成):** `HdPacsQidoService` 改用 PostgreSQL 陣列 overlap(`regexp_split_to_array(upper(...), '[\\,]') && @modalities::text[]`),支援逗號/反斜線/重複參數(ParseQuery 用 StringValues.ToString() 併成逗號),token 精準比對、順序無關,修掉 ILIKE %CT% 誤中 OCT/CTA。
 

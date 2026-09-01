@@ -95,9 +95,14 @@ MultiScheme 分派：帶 `hdp_` 前綴 → API Key 驗證；其他 Bearer → Ke
 | GET | `…/instances/{i}/metadata` | 單張 metadata |
 | GET | `…/instances/{i}` | 原始 DICOM（`multipart/related; type="application/dicom"`） |
 | GET | `…/instances/{i}/frames/{frames}` | 指定幀（逗號分隔多幀；多幀影像逐格取用） |
-| GET | `…/instances/{i}/rendered` | 渲染圖（JPEG；`Accept` 或 `?quality=`、`?viewport=` 控制） |
-| GET | `…/frames/{frame}/rendered` | 指定幀渲染圖 |
-| GET | `…/instances/{i}/thumbnail` | 縮圖（有記憶體快取，REQ-004） |
+| GET | `…/instances/{i}/rendered` | 渲染為可視格式；`Accept` 決定型別（`image/jpeg` 預設、`image/png`、封裝 PDF `application/pdf`、SR `text/html`、ECG 波形 `image/png`），另有 `?quality=`、`?viewport=` |
+| GET | `…/frames/{frame}/rendered` | 指定幀渲染圖（僅有像素資料的 instance） |
+| GET | `…/instances/{i}/thumbnail` | 縮圖（有記憶體快取，REQ-004；非影像型別回 415） |
+
+**怎麼知道某張可以轉成什麼**（標準沒有這個機制，兩條都是我們補的）：
+事先查 `/dicomweb/conformance` 的 `renderedMediaTypes`（以 SOP Class 對照，四類 image／document／report／waveform）；
+或直接試——型別不合回 **415**，回應帶 `supportedMediaTypes` 陣列列出這個 instance 接受什麼。
+WADO-URI（`/wado?contentType=…`）走同一套服務，415 也帶同樣的清單。細節見 [dicomweb.md](dicomweb.md)。
 
 - **出口疊合**：檔案原始不動，取得時自動疊 `RC_OBJECT.DATASET` 校正（coerce-on-retrieve）。
 - **金鑰綁匿名規則**：所有 WADO 取得＋QIDO 結果自動去識別（instance UID 決定性替換；client 無法選退）。
