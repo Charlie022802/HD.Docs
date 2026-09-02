@@ -6,7 +6,12 @@
 **實作**：`D:\Dev\HyperDigital\hdctl\`（自有 git repo）——**階段一 MVP 已完成（2026-08-10）**：
 `hdctl.py`（install/rollback/list/prune/version；sha256 驗證、requires 檢查、保留設定、產 unit、
 防火牆、symlink flip、健檢失敗自動退回）+ `hdpack.py`（publish → tgz+sha256，自動 build 時間戳）。
-manifest 正本放各元件 repo `deploy/hdctl-manifest.json`（HD.Export / HD.Net10(pacs 7 服務) / HD.AdminConsole）。用法見 `hdctl/README.md`。
+manifest 正本放各元件 repo `deploy/hdctl-manifest.json`（HD.Export / HD.Net10(pacs **8** 服務) / HD.AdminConsole）。用法見 `hdctl/README.md`。
+
+> **⚠️ 包裡的服務清單與專案清單不一致過（2026-09-02 修）。** HD.Net10 有九支服務，`pack-pacs.sh` 與 manifest 卻只列七支——`HD.CacheDelete` 與 `HD.ArchiveManager` 從來沒被打包。
+> 沒有 CACHE_DELETE 的 worker 代表 `delete_dicom` 排的刪除工作**永遠沒人處理**：DB 照做、檔案留著、工作卡在佇列裡，**完全不報錯**。而 `MAP_JOB` 是空的看起來像「一切正常」，實際上是「從來沒有人排過刪除」——直到真的去刪一次才會發現。
+> 2.0.14 補上 `hd-cache-delete`（實測：一啟動就把積壓的 job 236～246 全部清完）。`ArchiveManager`／`NearlineBackup` 依決定暫不納入（要先調整），**所以 `IS_ARCHIVED`／`IS_NEARLINE_CACHED` 在 .191 永遠不會變 true**。
+> 新增服務時，`pack-pacs.sh` 的 `SVC`、manifest 的 `services` 與 `preserve` 三處要一起改。
 **0.2.0（同日）**：+`apply`（release.json 全驗才動、依序裝、失敗整批退回）、`links`（共用設定 symlink 進包內，
 pacs 的 hd_conf.json 靠這個、C# 不用改）、`start/stop/restart/status`、`migrate`（列未套 SQL+--done 登記）。
 **.191 已遷入 hdctl**：pacs（7 服務一元件）、export、adminconsole。
@@ -24,6 +29,9 @@ unit 自動塞 `DOTNET_CONTENTROOT`/`ASPNETCORE_CONTENTROOT` 指服務程式目�
 - **hdctl = 單檔 Python 3（只用標準庫）**；指令皆帶元件：install/update/rollback/apply/status/start/stop/restart/migrate/version/prune。
 - **每元件各自 tgz** `hd-<component>-<version>.tgz` + `.sha256`（可選簽章）；**manifest.json 內嵌包裡**（services/env/ports/migrations/`requires` 相容中繼）。
 - **symlink 版本切換（藍綠）**：`<component>/releases/<ver>/`（不可變）+ `current -> releases/<ver>`；update=解壓→stop→flip→start（失敗自動 flip 回）；rollback=純 flip 不複製；data/logs 放 releases 外故切版保留。
+  - **「放 releases 外」要自己確認，不是自動的（2026-09-02 實案）。** DicomWeb 的 `./logs` 與 `app/logs`（含 `logplatform-buffer`）一直落在 `releases/<版本>/` 裡，prune 保留 3 版 → **舊日誌隨更版消失**。9/1 部署十次，隔天查前一天的問題時完全沒有東西可看。`logplatform-buffer` 更嚴重：那是送不出去時的暫存，prune 掉等於把還沒送到集中日誌的紀錄丟了；`app/data/access.db` 同理。
+  - 修法是 manifest 的 `links` 接到元件目錄（alpha.31 起四條：`data`／`logs`／`app/logs`／`app/data`，涵蓋 CWD 與 ContentRoot 兩種基準）。需 **hdctl 0.2.9**——它會把不存在的目錄型連結目標先建出來，否則符號連結懸空、程式 `CreateDirectory` 會撞上「連結已存在但不是目錄」。
+  - pacs 不受影響：它的 `../../logs` 相對 CWD 解析後正好落在 releases 外面。**同一個包裡兩種寫法，結果天差地遠**。
 - **release 協調包** `release.json`：多元件一起上（如共用 migration），全驗才動、依序 update、可整批 rollback。
 - **單一 HDPACS DB**：安裝只問一次 → 寫 `hd_conf.json`（PACS 讀）+ `/etc/hd/db.env`（DicomWeb 完整連線）。日誌 `/etc/hd/logplatform.env` 全元件共用。
 

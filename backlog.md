@@ -477,3 +477,35 @@
 
 ## 多院區主機（2026-08-10 方向宣告；設計完備待開工，正本 [multi-site-design.md](multi-site-design.md)）
 .191 架設完成後複製 VM → 獸醫總主機；全院影像集中匯入；新版 DicomWebViewer 依 HospitalName 控管顯示（舊制一院一 DB → 集中單 DB）。開工前要定的六個設計決策見記憶 project_animal_central_host（院區歸屬正本＝上傳憑證非 InstitutionName、server 端強制過濾、穩定院區代碼、單 DB 取捨、VM 複製 checklist、存量匯入路徑）。
+
+### REQ-026　pacs 包缺 ArchiveManager／NearlineBackup（CacheDelete 已於 2.0.14 補上）
+- **狀態**：提出（2026-09-02）。**CacheDelete 已解決**；這兩支依決定暫緩（要先調整）。
+- **系統**：主 PACS（HD.Net10）`deploy/pack-pacs.sh` ＋ `deploy/hdctl-manifest.json`
+- **現況**：專案有九支服務，包裡（2.0.15）有八支。缺 `HD.ArchiveManager`
+  （`ARCHIVE_UPLOAD`／`NEARLINE_BACKUP` 兩個 worker）。
+- **後果**：`.191` 上 `IS_ARCHIVED`／`IS_NEARLINE_CACHED`／`IS_ARCHIVE_CACHED` **永遠不會變成 true**，
+  因為沒有東西去做封存與近線備份。連帶：
+  - autopilot 的快取清理挑不到檢查（它的條件要求 `IS_ARCHIVE_CACHED = TRUE`），所以自動清快取實際上不會發生
+  - 儲存分層那一整套在測試床上等於沒有被驗過
+- **要先想清楚的**：這兩支要能寫到近線／封存目的地，沒設定好就啟動可能開始搬或刪東西。
+  納入之前先確認 volume 設定與目的地。
+- **舊換新的風險**：若瑟正式機是舊版 `ProgramPublish` 安裝，那邊本來就有這些服務。
+  **用這個包做舊換新時若少了它們，封存與近線備份會靜靜停止**——沒有錯誤，只有磁碟慢慢滿。
+
+### REQ-027　DicomWeb STOW 寫檔「成功」不保證落到 NAS（未結案）
+- **狀態**：觀察（2026-09-02）。**原因未明**，相關測試資料已清除，暫不追。
+- **系統**：DicomWeb `HdPacsStowService`
+- **現象**（2026-09-01 16:37～20:16）：多筆經 DicomWeb 進來的物件，**DB 有 `RC_OBJECT` 與 `RC_LOCATION`，
+  NAS 上沒有檔案**。同一天 16:25 的一筆（2.7 MB MPEG-4）完好；8/14、8/26 的舊資料也都在。
+  隔日重現實驗（同一支 API、同一條路徑）**完全正常**，跨過 STUDY_CLOSE 追 90 秒也沒消失。
+- **已排除**：寫進 release 被 prune（服務目錄下沒有 `HDPACS-CACHE01`）、掛載點被蓋住
+  （`mount --bind /` 看根檔案系統無該路徑）、兩台各存各的（同一個 NAS，`.191`／`.199` 看到相同內容）、
+  `CACHE_DELETE` 清理（**當時根本沒有 worker**）、`StudyClosedService` 改檔（A0~A3 之後已改為唯讀）。
+- **值得注意的機制**：寫檔後的驗證是「讀回來算 SHA-256」，但那讀的是**本機 page cache**，不是 NAS。
+  所以 NFS 的 write-back 失敗對它是隱形的——每一步都成功、DB 照寫、檔案不存在。
+  要真的確認落地需要 `FileOptions.WriteThrough` 或 `Flush(true)`。
+- **代價權衡**：加上同步落地會讓每次寫入變慢；不加的代價是「DB 說有、檔案沒有」而且沒有人會發現。
+- **再發生時怎麼查**：alpha.31 起日誌留在 `/home/HD/service/hd-dicomweb/logs/`（不再隨更版消失），
+  `STOW: saved DICOM file` 那行會印出實際寫入的絕對路徑——跟 `get_object_path()` 一比就知道是
+  「沒落地」還是「寫讀不同源」。
+
